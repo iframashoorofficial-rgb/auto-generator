@@ -16,11 +16,20 @@ export function IntakeChat({
   profile,
   onProfile,
   onReady,
+  onFailure,
+  onUserTurns,
+  active = true,
 }: {
   formatId: string;
   profile: BusinessProfile;
   onProfile: (p: BusinessProfile) => void;
   onReady: (ready: boolean) => void;
+  /** Lets the host offer a way out when the interview cannot proceed. */
+  onFailure?: (failed: boolean) => void;
+  /** How many times the visitor has answered — used as a backstop way out. */
+  onUserTurns?: (count: number) => void;
+  /** False while the chat is minimised — suppresses autofocus and scrolling. */
+  active?: boolean;
 }) {
   const [turns, setTurns] = useState<ChatTurn[]>([
     { role: "assistant", content: OPENER },
@@ -29,10 +38,20 @@ export function IntakeChat({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    if (!active) return;
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [turns, busy]);
+  }, [turns, busy, active]);
+
+  useEffect(() => {
+    if (active) inputRef.current?.focus();
+  }, [active]);
+
+  useEffect(() => {
+    onUserTurns?.(turns.filter((t) => t.role === "user").length);
+  }, [turns, onUserTurns]);
 
   async function send() {
     const text = draft.trim();
@@ -54,14 +73,17 @@ export function IntakeChat({
 
       if (!res.ok) {
         setError(data.error || "The interview stalled. Try again.");
+        onFailure?.(true);
         return;
       }
 
       setTurns([...next, { role: "assistant", content: data.reply }]);
       if (data.profile) onProfile(data.profile);
       onReady(Boolean(data.ready));
+      onFailure?.(false);
     } catch {
       setError("Could not reach the server.");
+      onFailure?.(true);
     } finally {
       setBusy(false);
     }
@@ -82,6 +104,7 @@ export function IntakeChat({
 
       <div className="chatInput">
         <textarea
+          ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

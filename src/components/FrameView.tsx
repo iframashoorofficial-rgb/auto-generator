@@ -2,6 +2,7 @@
 
 import type { FormatDef, FrameDef } from "@/lib/formats";
 import type { Pack, PhotoRole } from "@/lib/packs";
+import { fitSize } from "@/lib/fit";
 
 /**
  * Renders one frame at its true output size, scaled down by CSS transform.
@@ -91,15 +92,4 @@ export function FrameView({
       </div>
     </div>
   );
-}
-
-/**
- * Shrink a line until it fits its box. Display type must never wrap — a
- * wrapped headline destroys the hierarchy these layouts depend on.
- */
-function fitSize(text: string, base: number, avail: number): number {
-  if (!text) return base;
-  const estimated = base * 0.54 * text.length;
-  if (estimated <= avail) return base;
-  return Math.max(30, Math.floor(base * (avail / estimated)));
 }

@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FORMATS, getFormat } from "@/lib/formats";
 import { PACKS, getPack, matchPack } from "@/lib/packs";
 import { EMPTY_PROFILE, completeness, type BusinessProfile } from "@/lib/profile";
 import { IntakeChat } from "@/components/IntakeChat";
 import { FrameView } from "@/components/FrameView";
+import { renderFrame, saveBlob } from "@/lib/render-canvas";
+import type { PhotoRole } from "@/lib/packs";
 
 const SCALE = 0.26;
 
@@ -14,10 +16,19 @@ export default function Studio() {
   const [profile, setProfile] = useState<BusinessProfile>(EMPTY_PROFILE);
   const [ready, setReady] = useState(false);
 
+  // The interview opens as a modal over the page and gates the rest of the app
+  // until it is done. `chatDone` latches — once the interview has been
+  // completed (or skipped past a failure) the site stays unlocked.
+  const [chatOpen, setChatOpen] = useState(true);
+  const [chatDone, setChatDone] = useState(false);
+  const [chatFailed, setChatFailed] = useState(false);
+  const [chatTurns, setChatTurns] = useState(0);
+
   const [slots, setSlots] = useState<Record<string, string> | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [steer, setSteer] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [packId, setPackId] = useState("auto");
@@ -25,6 +36,44 @@ export default function Studio() {
   const fileRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const format = getFormat(formatId);
+
+  // The interview reports `ready` when it has what it needs. Hold the last
+  // reply on screen for a beat so the close does not feel abrupt.
+  useEffect(() => {
+    if (!ready || chatDone) return;
+    setChatDone(true);
+    const t = setTimeout(() => setChatOpen(false), 1400);
+    return () => clearTimeout(t);
+  }, [ready, chatDone]);
+
+  // Nothing behind the modal should scroll while it is up.
+  useEffect(() => {
+    if (!chatOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [chatOpen]);
+
+  // Escape only works once the interview is no longer required.
+  useEffect(() => {
+    if (!chatOpen || !(chatDone || chatFailed)) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setChatOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chatOpen, chatDone, chatFailed]);
+
+  // The interview only reports `ready` when the model decides it is done, and
+  // it can keep asking well past the point where the profile is actually
+  // complete. Behind a blocking modal that would trap the visitor, so let them
+  // out once we genuinely have what we need, if the request failed, or after
+  // enough answers that something is clearly wrong.
+  const profileComplete = completeness(profile) === 100;
+  const canLeave = chatDone || chatFailed || profileComplete || chatTurns >= 6;
+  const dismissable = canLeave;
 
   const pack = useMemo(() => {
     if (packId !== "auto") return getPack(packId);
@@ -56,6 +105,42 @@ export default function Studio() {
     }
   }
 
+  function photoFor(index: number) {
+    const frame = format.frames[index];
+    return (
+      shots[index] || pack.photos[frame.photo as PhotoRole] || pack.photos.establish
+    );
+  }
+
+  function slug(text: string) {
+    return (text || "frames").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  }
+
+  async function exportFrames(only?: number) {
+    if (!slots) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const indexes = only === undefined ? format.frames.map((_, i) => i) : [only];
+      for (const i of indexes) {
+        const blob = await renderFrame({
+          format,
+          frame: format.frames[i],
+          slots,
+          photoSrc: photoFor(i),
+          wordmark: profile.name,
+        });
+        saveBlob(blob, `${slug(profile.name)}-${format.id}-${String(i + 1).padStart(2, "0")}.png`);
+        // Browsers drop rapid-fire downloads; space them out.
+        if (indexes.length > 1) await new Promise((r) => setTimeout(r, 350));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function pickPhoto(index: number, file: File | undefined) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -71,7 +156,8 @@ export default function Studio() {
   const pct = completeness(profile);
 
   return (
-    <main className="shell">
+    <>
+    <main className="shell" inert={chatOpen && !dismissable ? true : undefined}>
       <header className="top">
         <p className="eyebrow">Format studio</p>
         <h1>Tell it about the business. Get the assets.</h1>
@@ -148,16 +234,6 @@ export default function Studio() {
 
         <section className="main">
           <div className="panel">
-            <h2>Interview</h2>
-            <IntakeChat
-              formatId={formatId}
-              profile={profile}
-              onProfile={setProfile}
-              onReady={setReady}
-            />
-          </div>
-
-          <div className="panel">
             <h2>Write it</h2>
             <div className="genRow">
               <input
@@ -184,6 +260,19 @@ export default function Studio() {
 
           {slots && (
             <>
+              <div className="exportBar">
+                <button
+                  className="primary"
+                  onClick={() => void exportFrames()}
+                  disabled={exporting}
+                >
+                  {exporting ? "Rendering…" : `Download all ${format.frames.length} frames`}
+                </button>
+                <span className="hint">
+                  {format.width} × {format.height} PNG, one file per frame.
+                </span>
+              </div>
+
               <div className="stripWrap">
                 <div className="strip">
                   {format.frames.map((frame, i) => (
@@ -206,6 +295,13 @@ export default function Studio() {
                             onClick={() => fileRefs.current[i]?.click()}
                           >
                             {shots[i] ? "Change photo" : "Replace photo"}
+                          </button>
+                          <button
+                            className="mini"
+                            onClick={() => void exportFrames(i)}
+                            disabled={exporting}
+                          >
+                            PNG
                           </button>
                           {shots[i] && (
                             <button
@@ -269,6 +365,71 @@ export default function Studio() {
         </section>
       </div>
     </main>
+
+    {/* The interview lives here, not inline. It stays mounted while minimised
+        so the conversation is still there when the bubble is clicked. */}
+    <div
+      className={`chatOverlay${chatOpen ? "" : " isMinimised"}`}
+      inert={chatOpen ? undefined : true}
+      onMouseDown={(e) => {
+        if (dismissable && e.target === e.currentTarget) setChatOpen(false);
+      }}
+    >
+      <div
+        className="panel chatModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chatModalTitle"
+      >
+        <div className="chatModalHead">
+          <h2 id="chatModalTitle">Interview</h2>
+          {dismissable && (
+            <button
+              className="mini"
+              onClick={() => setChatOpen(false)}
+              aria-label="Minimise the interview"
+            >
+              Minimise
+            </button>
+          )}
+        </div>
+
+        <p className="hint chatModalNote">
+          {chatDone
+            ? "That's everything needed — minimising."
+            : "A few questions about the business first. The rest of the studio unlocks once we're done."}
+        </p>
+
+        <IntakeChat
+          formatId={formatId}
+          profile={profile}
+          onProfile={setProfile}
+          onReady={setReady}
+          onFailure={setChatFailed}
+          onUserTurns={setChatTurns}
+          active={chatOpen}
+        />
+
+        {canLeave && !chatDone && (
+          <button className="mini chatSkip" onClick={() => setChatOpen(false)}>
+            {chatFailed
+              ? "Skip for now and browse the studio"
+              : "Continue to the studio"}
+          </button>
+        )}
+      </div>
+    </div>
+
+    {!chatOpen && (
+      <button
+        className="chatBubble"
+        onClick={() => setChatOpen(true)}
+        aria-label="Reopen the interview"
+      >
+        <span aria-hidden="true">💬</span>
+      </button>
+    )}
+    </>
   );
 }
 

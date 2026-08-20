@@ -118,6 +118,9 @@ button.mini:hover { color: var(--ink); }
 .genRow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .genRow input { flex: 1; min-width: 220px; }
 
+.exportBar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.exportBar .hint { margin: 0; }
+
 .stripWrap { overflow-x: auto; padding-bottom: 8px; }
 .strip { display: flex; gap: 18px; min-width: min-content; }
 .cell { display: flex; flex-direction: column; gap: 9px; flex: 0 0 auto; }
@@ -166,4 +169,59 @@ button.mini:hover { color: var(--ink); }
 .visuallyHidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---- Interview modal ------------------------------------------------- */
+/* The interview opens over the studio and gates it until it is finished,
+   then minimises to a bubble. The overlay stays mounted while minimised so
+   the conversation survives being closed and reopened. */
+
+.chatOverlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(6, 7, 9, 0.72);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  overflow-y: auto;
+  animation: chatFade 0.22s ease both;
+}
+.chatOverlay.isMinimised { display: none; }
+
+.chatModal {
+  width: min(680px, 100%);
+  max-height: min(88vh, 860px);
+  display: flex; flex-direction: column;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.55);
+  animation: chatRise 0.24s ease both;
+}
+.chatModalHead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+}
+.chatModalHead h2 { margin-bottom: 0; }
+.chatModalNote { margin: 10px 0 16px; }
+.chatModal .chat { min-height: 0; flex: 1; }
+.chatModal .chatLog { max-height: min(52vh, 430px); }
+.chatSkip { align-self: flex-start; margin-top: 14px; text-decoration: underline; }
+
+.chatBubble {
+  position: fixed; right: 24px; bottom: 24px; z-index: 55;
+  width: 56px; height: 56px; padding: 0; border-radius: 50%;
+  font-size: 22px; line-height: 1;
+  background: var(--accent); border-color: var(--accent); color: #16120b;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  animation: chatRise 0.24s ease both;
+}
+.chatBubble:hover { filter: brightness(1.06); }
+
+@keyframes chatFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chatRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chatOverlay, .chatModal, .chatBubble { animation: none; }
+}
+@media (max-width: 560px) {
+  .chatOverlay { padding: 12px; }
+  .chatBubble { right: 16px; bottom: 16px; }
 }
