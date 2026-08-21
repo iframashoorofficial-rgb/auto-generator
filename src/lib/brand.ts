@@ -9,6 +9,7 @@
  * Everything here is plain data so it can round-trip through localStorage.
  */
 
+import type { SignalMap } from "./signals";
 import {
   EMPTY_PROFILE,
   mergeProfile,
@@ -69,6 +70,11 @@ export interface ContentPrefs {
   /** Free-text signals harvested from "more like this" / "less like this". */
   liked: string[];
   disliked: string[];
+  /**
+   * Weighted taste learned from swiping. Optional so a brand saved before the
+   * swipe deck existed loads unchanged and simply starts with none.
+   */
+  signals?: SignalMap;
 }
 
 export const EMPTY_PREFS: ContentPrefs = {
@@ -81,6 +87,7 @@ export const EMPTY_PREFS: ContentPrefs = {
   visualStyle: "",
   liked: [],
   disliked: [],
+  signals: {},
 };
 
 export interface BrandProfile {

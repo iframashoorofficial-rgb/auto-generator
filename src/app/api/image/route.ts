@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateImage, MissingKeyError, UpstreamError } from "@/lib/openrouter";
-import { buildSlidePrompt, defaultVisual } from "@/lib/visual-prompt";
+import { buildIdeaPrompt, buildSlidePrompt, defaultVisual } from "@/lib/visual-prompt";
+import { getContentFormat } from "@/lib/ideas";
 import { EMPTY_BRAND, mergeBrand, type BrandProfile } from "@/lib/brand";
 import { getFormat } from "@/lib/formats";
 import { IMAGE_LIMIT, callerKey, checkRateLimit } from "@/lib/rate-limit";
@@ -25,6 +26,16 @@ interface ImageRequest {
   copy?: string;
   /** Earlier slides from this same carousel, as data URLs. */
   references?: string[];
+  /**
+   * Set instead of formatId/frameIndex to illustrate a single swipe-deck idea
+   * rather than a carousel slide. Same DNA layer either way.
+   */
+  idea?: {
+    hook: string;
+    concept?: string;
+    visualDirection?: string;
+    formatType?: string;
+  };
 }
 
 export async function POST(req: Request) {
@@ -51,13 +62,6 @@ export async function POST(req: Request) {
   }
 
   const brand = mergeBrand(EMPTY_BRAND, body.brand);
-  const format = getFormat(body.formatId);
-  const index = Number(body.frameIndex) || 0;
-  const frame = format.frames[index];
-
-  if (!frame) {
-    return NextResponse.json({ error: "No such slide." }, { status: 400 });
-  }
 
   // Fall back to a sane house style rather than refusing when the brand has
   // not described a look yet.
@@ -65,15 +69,34 @@ export async function POST(req: Request) {
     ? brand.visual
     : { ...defaultVisual(brand.business.sector), ...brand.visual };
 
-  const prompt = buildSlidePrompt({
-    brand,
-    dna,
-    format,
-    frame,
-    index,
-    total: format.frames.length,
-    copy: body.copy,
-  });
+  let prompt: string;
+
+  if (body.idea?.hook) {
+    prompt = buildIdeaPrompt({
+      brand,
+      dna,
+      hook: body.idea.hook,
+      concept: body.idea.concept ?? "",
+      visualDirection: body.idea.visualDirection ?? "",
+      formatLabel: getContentFormat(body.idea.formatType ?? "").label,
+    });
+  } else {
+    const format = getFormat(body.formatId);
+    const index = Number(body.frameIndex) || 0;
+    const frame = format.frames[index];
+    if (!frame) {
+      return NextResponse.json({ error: "No such slide." }, { status: 400 });
+    }
+    prompt = buildSlidePrompt({
+      brand,
+      dna,
+      format,
+      frame,
+      index,
+      total: format.frames.length,
+      copy: body.copy,
+    });
+  }
 
   try {
     const { dataUrl, model } = await generateImage(prompt, body.references ?? []);

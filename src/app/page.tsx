@@ -9,6 +9,10 @@ import { REMIX_MODES, learnFrom, type RemixMode } from "@/lib/remix";
 import { usePersistentState } from "@/lib/store";
 import { queueId, type QueueItem } from "@/lib/queue";
 import { IntakeChat } from "@/components/IntakeChat";
+import { SwipeDeck, type SwipeDir } from "@/components/SwipeDeck";
+import { IdeaEditor } from "@/components/IdeaEditor";
+import { getContentFormat, type ContentIdea } from "@/lib/ideas";
+import { reinforce } from "@/lib/signals";
 import { BrandProgress } from "@/components/BrandProgress";
 import { BrandPanel } from "@/components/BrandPanel";
 import { ContentQueue } from "@/components/ContentQueue";
@@ -42,6 +46,14 @@ export default function Studio() {
    */
   const [generated, setGenerated] = useState<Record<number, string>>({});
   const [imaging, setImaging] = useState<Record<number, boolean>>({});
+
+  // Discover is the front door; the studio is where a liked idea gets built.
+  const [view, setView] = useState<"discover" | "studio">("discover");
+  const [ideas, setIdeas] = useState<ContentIdea[]>([]);
+  const [seenHooks, setSeenHooks] = useState<string[]>([]);
+  const [ideasBusy, setIdeasBusy] = useState(false);
+  const [editing, setEditing] = useState<ContentIdea | null>(null);
+  const [ideaImaging, setIdeaImaging] = useState<Record<string, boolean>>({});
 
   const [chatOpen, setChatOpen] = useState(false);
   const [chatFailed, setChatFailed] = useState(false);
@@ -95,6 +107,108 @@ export default function Studio() {
     (items: QueueItem[]) => setQueue((q) => [...items, ...q]),
     [setQueue],
   );
+
+  /** Fetch a fresh batch of ideas, excluding hooks already swiped this session. */
+  const loadIdeas = useCallback(async () => {
+    setIdeasBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand, count: 6, exclude: seenHooks }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not fetch ideas.");
+        return;
+      }
+      setIdeas((prev) => [...prev, ...(data.ideas as ContentIdea[])]);
+    } catch {
+      setError("Could not reach the recommender.");
+    } finally {
+      setIdeasBusy(false);
+    }
+  }, [brand, seenHooks]);
+
+  // First batch once the brand is known. Without a profile the ideas would be
+  // generic, which is exactly the experience this is meant to replace.
+  useEffect(() => {
+    if (view !== "discover" || !onboarded || ideas.length || ideasBusy) return;
+    void loadIdeas();
+    // loadIdeas is intentionally omitted: it changes on every swipe, which
+    // would re-fire this the moment the deck shrinks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, onboarded, ideas.length]);
+
+  /**
+   * A swipe is a taste signal, never a publish.
+   *
+   * Weighted signals drive future recommendations; the free-text lists stay in
+   * sync so the copywriter, which reads those, benefits from swiping too.
+   */
+  function decide(idea: ContentIdea, dir: SwipeDir) {
+    const liked = dir === "like";
+    const fmt = getContentFormat(idea.formatType);
+    const signalText = `${fmt.label} · ${idea.hook}`.slice(0, 90);
+
+    setBrand((b) => ({
+      ...b,
+      prefs: {
+        ...b.prefs,
+        signals: reinforce(b.prefs.signals ?? {}, idea.attrs, liked),
+        liked: liked ? [...b.prefs.liked, signalText].slice(-8) : b.prefs.liked,
+        disliked: liked ? b.prefs.disliked : [...b.prefs.disliked, signalText].slice(-8),
+      },
+      updatedAt: Date.now(),
+    }));
+
+    setSeenHooks((h) => [...h, idea.hook].slice(-30));
+    setIdeas((list) => list.filter((i) => i.id !== idea.id));
+  }
+
+  /** Illustrate one idea. Explicit, because it costs a few cents. */
+  async function makeIdeaImage(idea: ContentIdea) {
+    setIdeaImaging((m) => ({ ...m, [idea.id]: true }));
+    setError(null);
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand,
+          idea: {
+            hook: idea.hook,
+            concept: idea.concept,
+            visualDirection: idea.visualDirection,
+            formatType: idea.formatType,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Image generation failed.");
+        return;
+      }
+      setIdeas((list) =>
+        list.map((i) => (i.id === idea.id ? { ...i, image: data.dataUrl } : i)),
+      );
+    } catch {
+      setError("Could not reach the image service.");
+    } finally {
+      setIdeaImaging((m) => ({ ...m, [idea.id]: false }));
+    }
+  }
+
+  /** Send a liked idea into the studio to be written properly. */
+  function buildIdea(idea: ContentIdea) {
+    const fmt = getContentFormat(idea.formatType);
+    if (fmt.formatId) setFormatId(fmt.formatId);
+    setSteer(idea.hook);
+    setSlots(null);
+    setGenerated({});
+    setView("studio");
+  }
 
   async function generate(bump: boolean, remix?: RemixMode) {
     const nextAttempt = bump ? attempt + 1 : 0;
@@ -315,6 +429,23 @@ export default function Studio() {
           </p>
         </header>
 
+        <nav className="viewNav" aria-label="Workspace">
+          <button
+            className="viewTab"
+            aria-pressed={view === "discover"}
+            onClick={() => setView("discover")}
+          >
+            Discover
+          </button>
+          <button
+            className="viewTab"
+            aria-pressed={view === "studio"}
+            onClick={() => setView("studio")}
+          >
+            Studio
+          </button>
+        </nav>
+
         <div className="cols">
           <section className="side">
             <div className="panel">
@@ -391,6 +522,83 @@ export default function Studio() {
           </section>
 
           <section className="main">
+            {view === "discover" ? (
+              <div className="discover">
+                <div className="discoverHead">
+                  <div>
+                    <h2 className="discoverTitle">Today&apos;s ideas</h2>
+                    <p className="discoverSub">
+                      {onboarded
+                        ? "Swipe right on directions you want more of. Nothing is published."
+                        : "Finish onboarding and the deck fills with ideas built for your brand."}
+                    </p>
+                  </div>
+                  {ideas.length > 0 && (
+                    <span className="deckCount">{ideas.length} left</span>
+                  )}
+                </div>
+
+                {error && <p className="error">{error}</p>}
+
+                {!onboarded ? (
+                  <div className="deckEmpty">
+                    <p className="deckEmptyTitle">Meet your brand first</p>
+                    <p className="hint">
+                      The deck is only worth swiping once the assistant knows who you are.
+                    </p>
+                    <button className="primary" onClick={() => setChatOpen(true)}>
+                      Open Brand Assistant
+                    </button>
+                  </div>
+                ) : ideasBusy && !ideas.length ? (
+                  <div className="deckEmpty">
+                    <p className="deckEmptyTitle">Thinking up ideas…</p>
+                    <p className="hint">Reading your profile, visual DNA and past swipes.</p>
+                  </div>
+                ) : (
+                  <SwipeDeck
+                    ideas={ideas}
+                    onDecide={decide}
+                    onEdit={setEditing}
+                    onGenerateVisual={makeIdeaImage}
+                    generating={ideaImaging}
+                    busy={ideasBusy}
+                    onMore={loadIdeas}
+                  />
+                )}
+
+                {ideas.length > 0 && (
+                  <div className="deckFoot">
+                    <button className="mini" onClick={() => buildIdea(ideas[0])}>
+                      Build this in the studio
+                    </button>
+                    <button
+                      className="mini"
+                      onClick={() => {
+                        const i = ideas[0];
+                        setQueue((q) => [
+                          {
+                            id: queueId(i.hook, q.length),
+                            title: i.hook,
+                            angle: `${getContentFormat(i.formatType).label} · ${i.platform}`,
+                            formatId: getContentFormat(i.formatType).formatId ?? formatId,
+                            status: "idea",
+                            createdAt: Date.now(),
+                          },
+                          ...q,
+                        ]);
+                        setFeedback("Saved to the queue.");
+                        setTimeout(() => setFeedback(null), 2500);
+                      }}
+                    >
+                      Save to queue
+                    </button>
+                    {feedback && <span className="okNote">{feedback}</span>}
+                  </div>
+                )}
+              </div>
+            ) : (
+            <>
             <div className="panel">
               <h2>Write it</h2>
               <div className="genRow">
@@ -552,9 +760,25 @@ export default function Studio() {
                 </div>
               </>
             )}
+            </>
+            )}
           </section>
         </div>
       </main>
+
+      {editing && (
+        <IdeaEditor
+          idea={editing}
+          onCancel={() => setEditing(null)}
+          onSave={(next) => {
+            // A text edit is a local change only — never a paid regeneration.
+            setIdeas((list) => list.map((i) => (i.id === next.id ? next : i)));
+            setEditing(null);
+            setFeedback("Idea updated.");
+            setTimeout(() => setFeedback(null), 2000);
+          }}
+        />
+      )}
 
       {/* Kept mounted while minimised so the conversation survives closing. */}
       <div

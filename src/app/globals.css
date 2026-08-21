@@ -312,3 +312,185 @@ button.mini:hover { color: var(--ink); }
   width: 11px; height: 11px; border-radius: 50%;
   background: var(--danger); border: 2px solid var(--ground);
 }
+
+/* ---- Discover: view switch --------------------------------------------- */
+
+.viewNav { display: flex; gap: 4px; margin: 0 0 26px; }
+.viewTab {
+  padding: 8px 18px; border-radius: 999px; font-size: 13px;
+  background: transparent; border: 1px solid transparent; color: var(--muted);
+}
+.viewTab:hover { color: var(--ink); }
+.viewTab[aria-pressed="true"] {
+  background: var(--panel); border-color: var(--line); color: var(--ink);
+}
+
+/* ---- Discover: layout --------------------------------------------------- */
+
+.discover { display: flex; flex-direction: column; gap: 22px; }
+.discoverHead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.discoverTitle {
+  font-size: 22px; font-weight: 500; letter-spacing: -0.015em; margin: 0 0 5px;
+}
+.discoverSub { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.55; max-width: 52ch; }
+.deckCount {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+
+.deck { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.deckStage {
+  position: relative; width: 100%; max-width: 420px;
+  /* Reserve the stack's height so the controls never jump between cards. */
+  min-height: 560px;
+  touch-action: pan-y;
+}
+.deckCard { position: absolute; inset: 0; will-change: transform; }
+.deckCard.isTop { cursor: grab; z-index: 2; }
+.deckCard.isTop.isDragging { cursor: grabbing; }
+.deckCard.isBehind {
+  transform: scale(0.945) translateY(14px);
+  filter: saturate(0.75) brightness(0.82);
+  pointer-events: none; z-index: 1;
+}
+
+/* ---- Discover: the card ------------------------------------------------- */
+
+.ideaCard {
+  height: 100%; display: flex; flex-direction: column;
+  background: var(--panel); border-radius: 20px; overflow: hidden;
+  box-shadow: 0 20px 44px rgba(0,0,0,0.46), 0 0 0 1px var(--line);
+}
+.ideaMedia { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.ideaMedia img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  user-select: none; -webkit-user-drag: none;
+}
+.ideaScrim {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg,
+    rgba(6,7,9,0.52) 0%, rgba(6,7,9,0.12) 26%,
+    rgba(6,7,9,0.34) 58%, rgba(6,7,9,0.92) 100%);
+}
+.ideaTags { position: absolute; top: 15px; left: 15px; display: flex; gap: 6px; flex-wrap: wrap; }
+.tag {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 5px 9px; border-radius: 999px;
+  background: rgba(8,9,11,0.62); color: var(--ink);
+  backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.12);
+}
+.tagFormat { background: var(--accent); color: #16120b; border-color: transparent; font-weight: 600; }
+.tagOwn { background: rgba(224,167,92,0.22); color: var(--accent); }
+
+.ideaCopy { position: absolute; left: 20px; right: 20px; bottom: 18px; }
+.ideaHook {
+  font-size: 25px; line-height: 1.16; font-weight: 600; letter-spacing: -0.02em;
+  margin: 0 0 9px; text-wrap: balance; text-shadow: 0 2px 18px rgba(0,0,0,0.55);
+}
+.ideaConcept {
+  font-size: 13px; line-height: 1.55; color: rgba(236,234,230,0.82); margin: 0;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.ideaFoot {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding: 13px 18px; background: var(--panel);
+}
+.linkBtn {
+  padding: 0; border: 0; background: none; color: var(--muted);
+  font-size: 12px; border-radius: 0;
+}
+.linkBtn:hover:not(:disabled) { color: var(--accent); }
+.linkBtn:disabled { opacity: 0.4; }
+
+.whyPanel {
+  padding: 0 18px 18px; background: var(--panel);
+  max-height: 250px; overflow-y: auto;
+}
+.whyTitle {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 9px;
+}
+.whyList { margin: 0 0 12px; padding-left: 17px; }
+.whyList li { font-size: 12.5px; line-height: 1.6; color: var(--ink); margin-bottom: 5px; }
+.whyMeta {
+  display: grid; grid-template-columns: 88px 1fr; gap: 5px 12px;
+  margin: 0; padding-top: 11px; border-top: 1px solid var(--line);
+}
+.whyMeta dt {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+}
+.whyMeta dd { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* ---- Discover: swipe feedback ------------------------------------------ */
+
+.stampWrap { position: absolute; inset: 0; pointer-events: none; }
+.stamp {
+  position: absolute; top: 30px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600;
+  padding: 9px 15px; border-radius: 9px; border: 2px solid currentColor;
+  background: rgba(8,9,11,0.5); backdrop-filter: blur(6px);
+}
+.stampLike { right: 22px; color: #7fd39b; transform-origin: top right; rotate: 9deg; }
+.stampPass { left: 22px; color: var(--danger); transform-origin: top left; rotate: -9deg; }
+
+/* ---- Discover: controls ------------------------------------------------- */
+
+.deckControls { display: flex; align-items: center; gap: 20px; }
+.circleBtn {
+  width: 62px; height: 62px; border-radius: 50%; padding: 0;
+  font-size: 22px; line-height: 1; display: grid; place-items: center;
+  background: var(--panel); border: 1px solid var(--line);
+  transition: transform 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.circleBtn:hover:not(:disabled) { transform: scale(1.07); }
+.circleBtn:active:not(:disabled) { transform: scale(0.95); }
+.circleBtn.pass { color: var(--danger); }
+.circleBtn.pass:hover:not(:disabled) { border-color: var(--danger); }
+.circleBtn.like { color: #7fd39b; }
+.circleBtn.like:hover:not(:disabled) { border-color: #7fd39b; }
+.pillBtn { border-radius: 999px; padding: 11px 22px; font-size: 13px; }
+
+.deckHint { font-size: 11.5px; color: var(--muted); margin: 0; text-align: center; }
+.deckFoot { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; justify-content: center; }
+
+.deckEmpty {
+  display: flex; flex-direction: column; align-items: center; gap: 11px;
+  text-align: center; padding: 62px 24px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+}
+.deckEmptyTitle { font-size: 17px; margin: 0; }
+.deckEmpty .hint { margin: 0; max-width: 40ch; }
+
+/* ---- Edit sheet --------------------------------------------------------- */
+
+.sheetWrap {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center;
+  padding: 22px; background: rgba(6,7,9,0.72);
+  backdrop-filter: blur(7px); overflow-y: auto;
+}
+.sheet {
+  width: min(620px, 100%); max-height: 88vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 22px;
+  box-shadow: 0 26px 70px rgba(0,0,0,0.55);
+}
+.sheetHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.sheetHead h2 { font-size: 16px; font-weight: 500; margin: 0; }
+.sheetNote { margin: 0 0 18px; }
+.sheetGrid { display: grid; gap: 13px; }
+.sheetFoot { display: flex; gap: 9px; margin-top: 20px; }
+
+@media (max-width: 560px) {
+  .deckStage { min-height: 520px; max-width: 100%; }
+  .ideaHook { font-size: 22px; }
+  .circleBtn { width: 58px; height: 58px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .circleBtn, .deckCard { transition: none !important; }
+}

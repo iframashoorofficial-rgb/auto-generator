@@ -127,3 +127,48 @@ export function styleSignature(dna: VisualDNA): string {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return h.toString(36).slice(0, 6);
 }
+
+/**
+ * Prompt for a standalone idea's visual.
+ *
+ * Same constant DNA layer as a carousel slide, so a one-off still made for the
+ * swipe deck sits in the same visual world as everything else the brand makes.
+ */
+export function buildIdeaPrompt(input: {
+  brand: BrandProfile;
+  dna: VisualDNA;
+  hook: string;
+  concept: string;
+  visualDirection: string;
+  formatLabel: string;
+}): string {
+  const { brand, dna, hook, concept, visualDirection, formatLabel } = input;
+  const b = brand.business;
+
+  const bans = [...dna.avoid, "any text, lettering, signage, captions or numerals"]
+    .filter(Boolean);
+
+  return [
+    `Generate one striking vertical image to headline a ${formatLabel} social post.`,
+    "",
+    "=== BRAND VISUAL DNA (identical for every image this brand makes) ===",
+    dnaBlock(dna),
+    "",
+    "=== CONTEXT ===",
+    `Brand: ${b.name || "an independent business"}`,
+    b.offering ? `What they do: ${b.offering}` : "",
+    `The post's hook: "${hook}"`,
+    concept ? `The idea: ${concept}` : "",
+    "",
+    "=== THIS IMAGE ===",
+    visualDirection || "A single clear scene that sets up the hook without illustrating it literally.",
+    "Leave the lower third visually quiet so a caption can sit over it.",
+    "",
+    "=== HARD RULES ===",
+    ...bans.map((x) => `- No ${x}`),
+    "- Vertical 1080x1920 aspect ratio.",
+    "- Photographic realism unless the DNA above says otherwise.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
