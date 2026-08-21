@@ -325,3 +325,77 @@ export const CLIP_VOICE_RULES = [
   "No call to action, and no hashtags inside the overlay text.",
   "The background footage is UNRELATED to the product: an ordinary person doing an ordinary thing. Never describe a product shot.",
 ];
+
+/* ---- Gen Z voice ------------------------------------------------------- */
+
+/**
+ * What actually reads as funny to this audience.
+ *
+ * Written as constraints, not vibes. "Be funny for Gen Z" produces a brand
+ * doing a bit, which is the single most repellent thing on the timeline. The
+ * rules below are about *stance* — who is speaking and how much they care —
+ * because that is what the audience is really reading.
+ */
+export const GENZ_VOICE = [
+  "lowercase. always. capitals read as a press release.",
+  "no exclamation marks. no emoji. the flatter the delivery, the funnier it is.",
+  "never explain the joke and never land on a punchline. stop one beat early and let it sit.",
+  "the poster is the loser of the story, never the expert. self-deprecating, never superior, never teaching.",
+  "start from ONE true mundane detail and escalate it further than is reasonable. the escalation is the joke; the detail makes it land.",
+  "specific nouns beat adjectives every time — a file name, a timestamp, an amount, a day of the week. 'a folder called final_v3' not 'messy files'.",
+  "if a brand could put the line in a press release, delete it and write a worse-behaved one.",
+  "the last line should be the shortest and the most deadpan.",
+  "name the shared condition: procrastination, avoidance, sunday dread, doing admin at 1am, being perceived at work.",
+  "natural constructions are fine when they arrive honestly: 'not me…', 'the way…', 'no because…', 'why is…', 'genuinely', 'lowkey'. one per post at most.",
+  "never force slang. dated slang ('yeet', 'on fleek', 'adulting', 'epic', 'rizz') is worse than plain english.",
+  "irony is the default register. sincerity only in the very last line, if at all.",
+];
+
+/**
+ * The bar the writing has to clear before it ships.
+ *
+ * Stated as a test the model applies to its own output, because a vague
+ * instruction to be funny is satisfied by a pun.
+ */
+export const FUNNY_BAR = [
+  "TEST EVERY LINE: would a stranger scrolling at 1am exhale through their nose? if not, it is filler — rewrite it.",
+  "TEST: could this exact post work for any other company? if yes, it is not specific enough to be funny. rewrite with this brand's real details.",
+  "TEST: does it read like a person who is mildly annoyed, or like a company being playful? if it is the second one, start again.",
+  "The joke must still carry ONE true, specific thing the product does. Funny that sells nothing is a meme; funny that explains nothing is useless. Land the benefit inside the joke, not after it.",
+];
+
+/**
+ * Backgrounds for the funny formats.
+ *
+ * A meme is not a photograph of the product. The reference posts use a
+ * laughing cat, a bloke in a hoodie, someone reacting — footage whose emotion
+ * carries the joke while the text does the selling. Left to itself the model
+ * writes "a tidy desk with a laptop", which is an advert.
+ *
+ * Phrased as stock-library searches because that is where they get resolved.
+ */
+export const REACTION_SUBJECTS = [
+  "cat staring directly at the camera",
+  "cat looking unimpressed",
+  "dog side-eye",
+  "person laughing until they cry",
+  "man covering his face with both hands",
+  "woman rolling her eyes",
+  "person collapsing face-down onto a sofa",
+  "someone slowly turning to look at the camera",
+  "person staring into the distance, dead-eyed",
+  "man shrugging exaggeratedly",
+  "woman laughing and pointing",
+  "person rubbing their temples at a desk",
+  "someone walking away from the camera",
+  "person lying on the floor",
+  "man nodding slowly with a blank expression",
+  "woman doing a double take",
+  "person hiding behind a laptop screen",
+  "someone throwing their hands up",
+];
+
+/** Rotate so a batch never repeats a reaction. */
+export function reactionFor(i: number, seed: number): string {
+  return REACTION_SUBJECTS[(i * 5 + seed) % REACTION_SUBJECTS.length];
+}

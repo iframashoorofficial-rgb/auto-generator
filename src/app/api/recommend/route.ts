@@ -24,10 +24,13 @@ import {
   CAPTION_SKELETONS,
   CLIP_VOICE_RULES,
   COMEDY_RULES,
+  FUNNY_BAR,
+  GENZ_VOICE,
   NATIVE_RULES,
   SLIDE_TEMPLATES,
   densityFor,
   patternsFor,
+  reactionFor,
   type CaptionSkeleton,
   type PostPattern,
   type SlideTemplate,
@@ -95,6 +98,8 @@ interface PlanItem {
   template?: SlideTemplate;
   /** Memes and clips get a viral line shape to transplant into. */
   skeleton?: CaptionSkeleton;
+  /** Memes and clips get reaction footage, never a product shot. */
+  reaction?: string;
 }
 
 function plan(count: number, seed: number): PlanItem[] {
@@ -117,11 +122,12 @@ function plan(count: number, seed: number): PlanItem[] {
 
     // Memes and clips transplant a viral line's syntax.
     const skeleton = CAPTION_SKELETONS[(i * 7 + seed) % CAPTION_SKELETONS.length];
-    if (kind === "clip") return { kind, angle, skeleton };
+    const reaction = reactionFor(i, seed);
+    if (kind === "clip") return { kind, angle, skeleton, reaction };
 
     const options = patternsFor(kind, comicAngles.has(angle));
     const pool = options.length ? options : patternsFor(kind);
-    return { kind, angle, skeleton, pattern: pool[(i + seed) % pool.length] };
+    return { kind, angle, skeleton, reaction, pattern: pool[(i + seed) % pool.length] };
   });
 }
 
@@ -149,6 +155,13 @@ function describe(w: PlanItem, i: number, competitor: string, alternative: strin
   if (w.pattern) {
     lines.push(`     pattern "${w.pattern.id}": ${w.pattern.template}`);
     lines.push(`     why it lands: ${w.pattern.note}`);
+  }
+
+  if (w.reaction) {
+    lines.push(
+      `     BACKGROUND (use as the slide's "subject", word for word): ${w.reaction}`,
+      `       The footage carries the emotion, the text carries the message. Do not describe the product here.`,
+    );
   }
 
   if (w.skeleton) {
@@ -205,6 +218,12 @@ export async function POST(req: Request) {
     "",
     "Write like a person who posts, not like an agency.",
     "",
+    "VOICE — the audience is gen z. this is not optional decoration, it is the whole register.",
+    ...GENZ_VOICE.map((r) => `- ${r}`),
+    "",
+    "THE BAR — apply these tests to your own output before returning it.",
+    ...FUNNY_BAR.map((r) => `- ${r}`),
+    "",
     "HOW TO BE FUNNY (this is the part that usually fails)",
     ...COMEDY_RULES.map((r) => `- ${r}`),
     "",
@@ -235,6 +254,7 @@ export async function POST(req: Request) {
       .join("\n"),
     "",
     "For every slide also give the shot: subject, environment, shotType, styleKeywords. Describe a real filmable/photographable moment.",
+    "BACKGROUNDS FOR meme AND clip: the footage is a REACTION, not the product. A laughing cat, someone with their head in their hands, a person staring at the camera. Never a desk, never a laptop, never the product. Each of those assets is given a reaction subject below — use it verbatim as the slide's 'subject'.",
     "NEVER write stage direction into a headline or body. No 'TOP PANEL:', no 'Slide 2:', no 'Scene:'. Those fields hold the exact words that appear on screen and nothing else.",
     "'why' is 2-3 short strategist reasons for the brand owner. Never mention prompts, models or your own process.",
     "'attrs' classifies the asset for learning: short lowercase phrases, omit anything that does not apply, never \"n/a\".",

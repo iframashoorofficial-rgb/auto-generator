@@ -202,16 +202,44 @@ export function MemeView({ asset, active }: { asset: ContentAsset; active: boole
  * username and the action rail — and the lines break naturally so it reads
  * like something typed, not laid out.
  */
+/**
+ * Size the rant so it always fits the safe band.
+ *
+ * A fixed size clipped anything long, which is what made text disappear at
+ * random — the cut depended entirely on how much the model happened to write.
+ * Sizing from the actual length means a 30-word post is comfortable and a
+ * 70-word one is merely small, but never truncated.
+ */
+function clipFontSize(chars: number): number {
+  if (chars <= 120) return 19;
+  if (chars <= 200) return 17;
+  if (chars <= 300) return 15;
+  if (chars <= 420) return 13.5;
+  return 12;
+}
+
 export function ClipView({ asset, active }: { asset: ContentAsset; active: boolean }) {
   const slide = asset.slides[0];
-  const lines = [slide?.headline, slide?.body].filter(Boolean).join("\n\n");
+  const raw = [slide?.headline, slide?.body].filter(Boolean).join("\n\n");
+  const lines = raw.split("\n").map((l) => l.trim());
+  const size = clipFontSize(raw.length);
 
   return (
     <div className="assetStage">
       <CardMedia media={mediaFor(asset, 0)} className="ideaAsset" active={active} />
       <div className="clipVeil" />
       <div className="safeZone">
-        <p className="clipText">{lines}</p>
+        <div className="clipText" style={{ fontSize: `${size}px` }}>
+          {lines.map((line, i) =>
+            line ? (
+              <span className="clipLine" key={i}>
+                {line}
+              </span>
+            ) : (
+              <span className="clipGap" key={i} aria-hidden="true" />
+            ),
+          )}
+        </div>
       </div>
     </div>
   );

@@ -341,9 +341,14 @@ button.mini:hover { color: var(--ink); }
 
 .deck { display: flex; flex-direction: column; align-items: center; gap: 20px; }
 .deckStage {
-  position: relative; width: 100%; max-width: 420px;
-  /* Reserve the stack's height so the controls never jump between cards. */
-  min-height: 560px;
+  position: relative;
+  /* 9:16, because that is what the footage and the platforms both are. The
+     card used to be 3:4, so object-fit: cover cropped a portrait clip top and
+     bottom — heads and feet gone, which read as "zoomed in". */
+  width: min(360px, 88vw);
+  aspect-ratio: 9 / 16;
+  max-height: 72vh;
+  margin: 0 auto;
   touch-action: pan-y;
 }
 .deckCard { position: absolute; inset: 0; will-change: transform; }
@@ -497,7 +502,11 @@ button.mini:hover { color: var(--ink); }
 
 /* ---- Finished assets: shared stage ------------------------------------- */
 
-.assetStage { position: absolute; inset: 0; overflow: hidden; }
+.assetStage {
+  position: absolute; inset: 0; overflow: hidden;
+  /* Lets the type below scale against the card width, not the viewport. */
+  container-type: inline-size;
+}
 
 /* ---- Carousel ----------------------------------------------------------- */
 
@@ -509,11 +518,12 @@ button.mini:hover { color: var(--ink); }
   font-size: 10px; letter-spacing: 0.18em; color: var(--accent); margin: 0 0 8px;
 }
 .slideHead {
-  font-size: 26px; line-height: 1.14; font-weight: 600; letter-spacing: -0.02em;
+  font-size: clamp(17px, 7cqw, 27px);
+  line-height: 1.14; font-weight: 600; letter-spacing: -0.02em;
   margin: 0 0 8px; text-wrap: balance; text-shadow: 0 2px 18px rgba(0,0,0,0.6);
 }
 .slideBody {
-  font-size: 13.5px; line-height: 1.5; color: rgba(236,234,230,0.86); margin: 0;
+  font-size: clamp(11px, 3.6cqw, 14px); line-height: 1.5; color: rgba(236,234,230,0.86); margin: 0;
   text-shadow: 0 1px 10px rgba(0,0,0,0.6);
 }
 
@@ -549,7 +559,8 @@ button.mini:hover { color: var(--ink); }
   transform: translateY(-50%); text-align: center;
 }
 .reelText {
-  font-size: 30px; line-height: 1.14; font-weight: 700; letter-spacing: -0.02em;
+  font-size: clamp(19px, 8cqw, 31px);
+  line-height: 1.14; font-weight: 700; letter-spacing: -0.02em;
   margin: 0 0 10px; text-wrap: balance; text-shadow: 0 3px 22px rgba(0,0,0,0.72);
 }
 .reelBar {
@@ -576,7 +587,7 @@ button.mini:hover { color: var(--ink); }
 }
 .memeLine {
   margin: 0; font-weight: 800; text-transform: uppercase;
-  font-size: 27px; line-height: 1.1; letter-spacing: -0.01em;
+  font-size: clamp(16px, 6.6cqw, 27px); line-height: 1.1; letter-spacing: -0.01em;
   color: #fff; text-wrap: balance;
   /* The classic meme outline, without needing a webfont. */
   text-shadow:
@@ -621,7 +632,7 @@ button.mini:hover { color: var(--ink); }
 @media (max-width: 560px) {
   .slideHead { font-size: 22px; }
   .reelText { font-size: 25px; }
-  .memeLine { font-size: 22px; }
+  .memeLine { letter-spacing: 0; }
 }
 
 
@@ -634,9 +645,9 @@ button.mini:hover { color: var(--ink); }
    at 1080x1920 on export, and the platform UI scales with the frame. */
 
 :root {
-  --safe-top: 6%;
-  --safe-bottom: 26%;
-  --safe-right: 14%;
+  --safe-top: 5%;
+  --safe-bottom: 24%;
+  --safe-right: 13%;
 }
 
 .safeZone {
@@ -645,6 +656,8 @@ button.mini:hover { color: var(--ink); }
   right: var(--safe-right); bottom: var(--safe-bottom);
   display: flex; align-items: center; justify-content: center;
   pointer-events: none;
+  /* Never clip. If the text is too long the fit logic shrinks it instead. */
+  overflow: visible;
 }
 
 /* ---- Clip: a rant over unrelated footage -------------------------------- */
@@ -656,21 +669,30 @@ button.mini:hover { color: var(--ink); }
     rgba(6,7,9,0.30) 70%, rgba(6,7,9,0.72) 100%);
 }
 
+/* Chips, not a wall of outlined text. This is the native caption look on
+   TikTok and Reels, and it stays readable over any footage — an outline
+   alone disappears against a busy or pale background. */
 .clipText {
-  margin: 0; text-align: center; color: #fff;
-  /* Long-form on purpose: this format runs 25-70 words. */
-  font-size: 15px; line-height: 1.5; font-weight: 600;
-  letter-spacing: -0.005em;
-  /* Preserve the blank line between paragraphs the composer writes. */
-  white-space: pre-line;
-  text-wrap: pretty;
-  max-height: 100%; overflow: hidden;
-  text-shadow:
-    -1.5px -1.5px 0 rgba(0,0,0,0.85), 1.5px -1.5px 0 rgba(0,0,0,0.85),
-    -1.5px 1.5px 0 rgba(0,0,0,0.85), 1.5px 1.5px 0 rgba(0,0,0,0.85),
-    0 2px 12px rgba(0,0,0,0.6);
+  margin: 0;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 3px;
+  /* Font size comes from the text length, set inline — see ClipView. A fixed
+     size meant a 70-word rant overflowed and was silently clipped. */
+  line-height: 1.34;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  width: 100%;
 }
-
-@media (max-width: 560px) {
-  .clipText { font-size: 14px; }
+.clipLine {
+  display: inline-block;
+  background: rgba(8, 9, 11, 0.66);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 5px;
+  text-wrap: balance;
+  max-width: 100%;
 }
+/* A blank line in the source becomes a beat, not an empty chip. */
+.clipGap { height: 0.55em; }
