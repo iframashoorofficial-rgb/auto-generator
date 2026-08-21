@@ -31,7 +31,10 @@ import {
   densityFor,
   patternsFor,
   reactionFor,
+  TRENDING_CAPTURED,
+  trendingSlot,
   type CaptionSkeleton,
+  type TrendingFormat,
   type PostPattern,
   type SlideTemplate,
 } from "@/lib/comedy";
@@ -106,6 +109,8 @@ interface PlanItem {
   skeleton?: CaptionSkeleton;
   /** Memes and clips get reaction footage, never a product shot. */
   reaction?: string;
+  /** At most one card per batch rides a format that is current right now. */
+  trending?: TrendingFormat;
 }
 
 function plan(count: number, seed: number): PlanItem[] {
@@ -116,24 +121,37 @@ function plan(count: number, seed: number): PlanItem[] {
     const kind = KINDS[i % KINDS.length];
     const angle = angles[(i + seed) % angles.length] as AngleId;
 
+    const trending = trendingSlot(i, kind, seed);
+
     // A carousel follows a whole argument skeleton; one line of guidance is
     // not enough to hold five slides together.
     if (kind === "carousel") {
       return {
         kind,
         angle,
-        template: SLIDE_TEMPLATES[(i + seed) % SLIDE_TEMPLATES.length],
+        trending,
+        template: trending
+          ? undefined
+          : SLIDE_TEMPLATES[(i + seed) % SLIDE_TEMPLATES.length],
       };
     }
 
     // Memes and clips transplant a viral line's syntax.
     const skeleton = CAPTION_SKELETONS[(i * 7 + seed) % CAPTION_SKELETONS.length];
     const reaction = reactionFor(i, seed);
-    if (kind === "clip") return { kind, angle, skeleton, reaction };
+    if (kind === "clip") return { kind, angle, skeleton, reaction, trending };
 
     const options = patternsFor(kind, comicAngles.has(angle));
     const pool = options.length ? options : patternsFor(kind);
-    return { kind, angle, skeleton, reaction, pattern: pool[(i + seed) % pool.length] };
+    return {
+      kind,
+      angle,
+      skeleton,
+      reaction,
+      trending,
+      // A trending format replaces the evergreen pattern rather than fighting it.
+      pattern: trending ? undefined : pool[(i + seed) % pool.length],
+    };
   });
 }
 
@@ -156,6 +174,15 @@ function describe(w: PlanItem, i: number, competitor: string, alternative: strin
           : `     No competitor was named, so contrast with the usual way instead: "${alternative || "the manual process"}". Do not invent a company name.`,
       );
     }
+  }
+
+  if (w.trending) {
+    lines.push(
+      `     TRENDING FORMAT "${w.trending.id}" (current as of ${TRENDING_CAPTURED}) — build this one on the trend:`,
+      `       ${w.trending.shape}`,
+      `       why it is working: ${w.trending.note}`,
+    );
+    if (w.trending.audio) lines.push(`       audioHint: ${w.trending.audio}`);
   }
 
   if (w.pattern) {
