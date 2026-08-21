@@ -12,6 +12,8 @@ import { IntakeChat } from "@/components/IntakeChat";
 import { SwipeDeck, type SwipeDir } from "@/components/SwipeDeck";
 import { IdeaEditor } from "@/components/IdeaEditor";
 import { getContentFormat, type ContentIdea } from "@/lib/ideas";
+import { LOW_WATER, dedupe, rankPool, trimPool, undecidedCount } from "@/lib/pool";
+import { imageRef } from "@/lib/media";
 import { reinforce } from "@/lib/signals";
 import { BrandProgress } from "@/components/BrandProgress";
 import { BrandPanel } from "@/components/BrandPanel";
@@ -23,7 +25,7 @@ import type { PhotoRole } from "@/lib/packs";
 const SCALE = 0.26;
 
 export default function Studio() {
-  const { brand, turns, queue, hydrated, setBrand, setTurns, setQueue, reset } =
+  const { brand, turns, queue, deck, hydrated, setBrand, setTurns, setQueue, setDeck, reset } =
     usePersistentState();
 
   const [formatId, setFormatId] = useState(FORMATS[0].id);
@@ -49,9 +51,13 @@ export default function Studio() {
 
   // Discover is the front door; the studio is where a liked idea gets built.
   const [view, setView] = useState<"discover" | "studio">("discover");
-  const [ideas, setIdeas] = useState<ContentIdea[]>([]);
-  const [seenHooks, setSeenHooks] = useState<string[]>([]);
   const [ideasBusy, setIdeasBusy] = useState(false);
+  /**
+   * Guards the paid endpoint against duplicate work: a double-click, a second
+   * component mounting, or an effect firing twice. React state is too slow —
+   * two clicks in the same tick would both see a stale `false`.
+   */
+  const fetchLock = useRef(false);
   const [editing, setEditing] = useState<ContentIdea | null>(null);
   const [ideaImaging, setIdeaImaging] = useState<Record<string, boolean>>({});
 
@@ -108,44 +114,81 @@ export default function Studio() {
     [setQueue],
   );
 
-  /** Fetch a fresh batch of ideas, excluding hooks already swiped this session. */
-  const loadIdeas = useCallback(async () => {
-    setIdeasBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brand, count: 6, exclude: seenHooks }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Could not fetch ideas.");
-        return;
-      }
-      setIdeas((prev) => [...prev, ...(data.ideas as ContentIdea[])]);
-    } catch {
-      setError("Could not reach the recommender.");
-    } finally {
-      setIdeasBusy(false);
-    }
-  }, [brand, seenHooks]);
+  /**
+   * The deck the user sees: the persisted pool, ranked locally against learned
+   * weights. Reranking is free arithmetic, so a swipe reorders what is left
+   * without another paid call.
+   */
+  const ideas = useMemo(
+    () => rankPool(deck.ideas, brand.prefs.signals ?? {}),
+    [deck.ideas, brand.prefs.signals],
+  );
 
-  // First batch once the brand is known. Without a profile the ideas would be
-  // generic, which is exactly the experience this is meant to replace.
+  /**
+   * Top up the pool. The only paid call in Discover.
+   *
+   * Guarded by a ref rather than state so two clicks in the same tick cannot
+   * both get through, and skipped entirely when the pool is already healthy.
+   */
+  const loadIdeas = useCallback(
+    async (force = false) => {
+      if (fetchLock.current) return;
+      if (!force && undecidedCount(deck.ideas) > LOW_WATER) return;
+
+      fetchLock.current = true;
+      setIdeasBusy(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brand,
+            count: 6,
+            // Everything already in the pool, decided or not, so a top-up
+            // never returns something the user has already seen.
+            exclude: deck.ideas.map((i) => i.hook),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Could not fetch ideas.");
+          return;
+        }
+        setDeck((d) => ({
+          ...d,
+          ideas: trimPool([...d.ideas, ...dedupe(d.ideas, data.ideas as ContentIdea[])]),
+        }));
+      } catch {
+        setError("Could not reach the recommender.");
+      } finally {
+        fetchLock.current = false;
+        setIdeasBusy(false);
+      }
+    },
+    [brand, deck.ideas, setDeck],
+  );
+
+  /**
+   * Only fetch when the pool is genuinely low. A refresh restores the saved
+   * deck, so returning to the tab costs nothing.
+   */
   useEffect(() => {
-    if (view !== "discover" || !onboarded || ideas.length || ideasBusy) return;
+    if (view !== "discover" || !onboarded || !hydrated) return;
+    if (undecidedCount(deck.ideas) > LOW_WATER) return;
     void loadIdeas();
-    // loadIdeas is intentionally omitted: it changes on every swipe, which
-    // would re-fire this the moment the deck shrinks.
+    // loadIdeas changes identity whenever the pool does, which would re-fire
+    // this on every swipe; the low-water check above is the real guard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, onboarded, ideas.length]);
+  }, [view, onboarded, hydrated, deck.ideas.length]);
 
   /**
    * A swipe is a taste signal, never a publish.
    *
-   * Weighted signals drive future recommendations; the free-text lists stay in
-   * sync so the copywriter, which reads those, benefits from swiping too.
+   * The card is marked decided rather than deleted, so a restored session
+   * knows what has already been answered. Weighted signals drive future
+   * ranking; the free-text lists stay in sync for the copywriter, which
+   * reads those.
    */
   function decide(idea: ContentIdea, dir: SwipeDir) {
     const liked = dir === "like";
@@ -163,8 +206,15 @@ export default function Studio() {
       updatedAt: Date.now(),
     }));
 
-    setSeenHooks((h) => [...h, idea.hook].slice(-30));
-    setIdeas((list) => list.filter((i) => i.id !== idea.id));
+    setDeck((d) => ({
+      ...d,
+      position: d.position + 1,
+      ideas: d.ideas.map((i) =>
+        i.id === idea.id
+          ? { ...i, decided: liked ? "like" : "pass", updatedAt: Date.now() }
+          : i,
+      ),
+    }));
   }
 
   /** Illustrate one idea. Explicit, because it costs a few cents. */
@@ -190,9 +240,21 @@ export default function Studio() {
         setError(data.error || "Image generation failed.");
         return;
       }
-      setIdeas((list) =>
-        list.map((i) => (i.id === idea.id ? { ...i, image: data.dataUrl } : i)),
-      );
+      // Inline base64 — held for this session only. The store strips it on
+      // save, so a refresh falls back to the stock preview rather than
+      // silently blowing the storage quota.
+      setDeck((d) => ({
+        ...d,
+        ideas: d.ideas.map((i) =>
+          i.id === idea.id
+            ? {
+                ...i,
+                media: imageRef(data.dataUrl, "generated", i.visualMeta.subject),
+                updatedAt: Date.now(),
+              }
+            : i,
+        ),
+      }));
     } catch {
       setError("Could not reach the image service.");
     } finally {
@@ -563,7 +625,7 @@ export default function Studio() {
                     onGenerateVisual={makeIdeaImage}
                     generating={ideaImaging}
                     busy={ideasBusy}
-                    onMore={loadIdeas}
+                    onMore={() => void loadIdeas(true)}
                   />
                 )}
 
@@ -772,7 +834,14 @@ export default function Studio() {
           onCancel={() => setEditing(null)}
           onSave={(next) => {
             // A text edit is a local change only — never a paid regeneration.
-            setIdeas((list) => list.map((i) => (i.id === next.id ? next : i)));
+            // A local edit only. Never triggers a paid regeneration — the
+            // visual changes solely via the explicit Generate visual action.
+            setDeck((d) => ({
+              ...d,
+              ideas: d.ideas.map((i) =>
+                i.id === next.id ? { ...next, edited: true, updatedAt: Date.now() } : i,
+              ),
+            }));
             setEditing(null);
             setFeedback("Idea updated.");
             setTimeout(() => setFeedback(null), 2000);

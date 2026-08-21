@@ -7,6 +7,7 @@
  */
 
 import type { SignalAttr } from "./signals";
+import type { MediaRef } from "./media";
 
 export interface ContentFormatDef {
   id: string;
@@ -141,9 +142,42 @@ export interface ContentIdea {
   why: string[];
   /** What a swipe on this card teaches. */
   attrs: IdeaAttrs;
-  /** Data URL, only once the user explicitly pays for a visual. */
-  image?: string;
+  /**
+   * Visual-search metadata. Used to pick a far more relevant preview than a
+   * keyword sweep of the concept text, and to seed an image prompt later.
+   */
+  visualMeta: VisualMeta;
+  /**
+   * Whatever asset this idea currently has. Starts as a stock still, becomes
+   * a generated image on request, and can be a video the day one exists.
+   */
+  media?: MediaRef;
+  /** Set once the user has swiped it, so a restored deck resumes correctly. */
+  decided?: "like" | "pass";
+  /** True when the user has hand-edited it — protects it from replenishment. */
+  edited?: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
+
+/**
+ * What a good preview would show. Kept structured rather than as one prose
+ * line so it can drive asset lookup, not just prompting.
+ */
+export interface VisualMeta {
+  subject: string;
+  environment: string;
+  /** close-up, wide, over-the-shoulder, flat lay, to-camera... */
+  shotType: string;
+  styleKeywords: string[];
+}
+
+export const EMPTY_VISUAL_META: VisualMeta = {
+  subject: "",
+  environment: "",
+  shotType: "",
+  styleKeywords: [],
+};
 
 /** Fields the editor may change without touching anything generated. */
 export const EDITABLE_FIELDS: {

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { getContentFormat, type ContentIdea } from "@/lib/ideas";
-import { matchPack } from "@/lib/packs";
+import { pickPreview } from "@/lib/pool";
+import { CardMedia } from "./CardMedia";
 
 /**
  * One idea, as a card.
@@ -28,22 +29,24 @@ export function IdeaCard({
   const [why, setWhy] = useState(false);
   const fmt = getContentFormat(idea.formatType);
 
-  // Free preview until the user asks for a generated visual: stock photography
-  // keeps the card visual without spending a few cents per idea in a feed.
-  const pack = matchPack(`${idea.topic} ${idea.concept} ${idea.audience}`);
-  const preview = idea.image || pack.photos[fmt.photo] || pack.photos.establish;
+  // Whatever asset the idea has: a stock still now, a generated image once
+  // asked for, a video the day one exists. Falls back to a metadata-matched
+  // preview when a restored session dropped its inline image.
+  const media =
+    idea.media ??
+    pickPreview({ ...idea.visualMeta, formatType: idea.formatType, topic: idea.topic });
 
   return (
     <article className="ideaCard">
       <div className="ideaMedia">
-        {/* Decorative: the hook beneath carries the meaning. */}
-        <img src={preview} alt="" draggable={false} />
+        <CardMedia media={media} className="ideaAsset" active={!inert} />
         <div className="ideaScrim" />
 
         <div className="ideaTags">
           <span className="tag tagFormat">{fmt.short}</span>
           {idea.platform && <span className="tag">{idea.platform}</span>}
-          {idea.image && <span className="tag tagOwn">Brand visual</span>}
+          {media.source === "generated" && <span className="tag tagOwn">Brand visual</span>}
+          {media.kind === "video" && <span className="tag tagOwn">Video</span>}
         </div>
 
         <div className="ideaCopy">
@@ -70,7 +73,11 @@ export function IdeaCard({
           disabled={inert || generating}
           title="Generates a branded image from your Visual DNA (~4¢)"
         >
-          {generating ? "Painting…" : idea.image ? "New visual" : "Generate visual"}
+          {generating
+            ? "Painting…"
+            : media.source === "generated"
+              ? "New visual"
+              : "Generate visual"}
         </button>
       </div>
 

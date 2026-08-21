@@ -15,6 +15,14 @@
  */
 
 export interface RateLimitRule {
+  /**
+   * Namespace for the counters.
+   *
+   * Without this every endpoint shared one global tally, so a burst of image
+   * generation would lock out recommendations — two unrelated budgets
+   * throttling each other.
+   */
+  name: string;
   /** Requests allowed per window, per caller. */
   perCaller: number;
   /** Window length in milliseconds. */
@@ -25,14 +33,37 @@ export interface RateLimitRule {
 
 /** Roughly $0.04 per image: 8 per 10 min per caller, 60/hour overall. */
 export const IMAGE_LIMIT: RateLimitRule = {
+  name: "image",
   perCaller: Number(process.env.IMAGE_LIMIT_PER_CALLER) || 8,
   windowMs: Number(process.env.IMAGE_LIMIT_WINDOW_MS) || 10 * 60_000,
   global: Number(process.env.IMAGE_LIMIT_GLOBAL) || 60,
 };
 
-/** Timestamps of recent hits, newest last. */
+/**
+ * Text generation is far cheaper than an image but not free — a batch is a
+ * few cents. The pool means a normal session needs very few of these, so a
+ * caller hitting the ceiling is almost certainly a loop or a stuck client.
+ */
+export const RECOMMEND_LIMIT: RateLimitRule = {
+  name: "recommend",
+  perCaller: Number(process.env.RECOMMEND_LIMIT_PER_CALLER) || 10,
+  windowMs: Number(process.env.RECOMMEND_LIMIT_WINDOW_MS) || 10 * 60_000,
+  global: Number(process.env.RECOMMEND_LIMIT_GLOBAL) || 80,
+};
+
+
+/** Counters are per rule name, so budgets never throttle each other. */
 const callers = new Map<string, number[]>();
-const globalHits: number[] = [];
+const globals = new Map<string, number[]>();
+
+function globalsFor(name: string): number[] {
+  let list = globals.get(name);
+  if (!list) {
+    list = [];
+    globals.set(name, list);
+  }
+  return list;
+}
 
 /**
  * Drop timestamps that have aged out of the window, mutating in place.
@@ -76,6 +107,8 @@ export function checkRateLimit(
   now: number = Date.now(),
 ): RateLimitResult {
   const since = now - rule.windowMs;
+  const globalHits = globalsFor(rule.name);
+  const scoped = rule.name + "|" + key;
 
   // Global ceiling first: it protects spend even if callers rotate.
   prune(globalHits, since);
@@ -88,9 +121,9 @@ export function checkRateLimit(
     };
   }
 
-  const recent = prune(callers.get(key) ?? [], since);
+  const recent = prune(callers.get(scoped) ?? [], since);
   if (recent.length >= rule.perCaller) {
-    callers.set(key, recent);
+    callers.set(scoped, recent);
     return {
       ok: false,
       retryAfter: Math.max(1, Math.ceil((recent[0] + rule.windowMs - now) / 1000)),
@@ -100,7 +133,7 @@ export function checkRateLimit(
   }
 
   recent.push(now);
-  callers.set(key, recent);
+  callers.set(scoped, recent);
   globalHits.push(now);
 
   // Keep the map from growing without bound on a long-lived instance.
@@ -121,5 +154,5 @@ export function checkRateLimit(
 /** Test seam — lets a test start from a clean slate. */
 export function resetRateLimit() {
   callers.clear();
-  globalHits.length = 0;
+  globals.clear();
 }

@@ -4,7 +4,9 @@ import { profileSummary } from "@/lib/profile";
 import { EMPTY_BRAND, brandSummary, mergeBrand, type BrandProfile } from "@/lib/brand";
 import { dnaBlock } from "@/lib/visual-prompt";
 import { signalBrief, signalCount } from "@/lib/signals";
-import { CONTENT_FORMATS, ideaId, type ContentIdea } from "@/lib/ideas";
+import { CONTENT_FORMATS, EMPTY_VISUAL_META, ideaId, type ContentIdea } from "@/lib/ideas";
+import { RECOMMEND_LIMIT, callerKey, checkRateLimit } from "@/lib/rate-limit";
+import { pickPreview } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -38,9 +40,31 @@ interface RawIdea {
   tone?: string;
   why?: string[];
   attrs?: Record<string, string>;
+  visualMeta?: {
+    subject?: string;
+    environment?: string;
+    shotType?: string;
+    styleKeywords?: string[];
+  };
 }
 
 export async function POST(req: Request) {
+  // Same limiter as the image endpoint. Checked before the body is read so a
+  // blocked request costs nothing.
+  const limit = checkRateLimit(callerKey(req), RECOMMEND_LIMIT);
+  if (!limit.ok) {
+    return NextResponse.json(
+      {
+        error:
+          limit.scope === "global"
+            ? "The studio is busy generating ideas. Try again shortly."
+            : "Slow down a moment — you have asked for a lot of ideas very quickly.",
+        retryAfter: limit.retryAfter,
+      },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
+  }
+
   let body: RecommendRequest;
   try {
     body = (await req.json()) as RecommendRequest;
@@ -86,6 +110,12 @@ export async function POST(req: Request) {
         audience: "",
         tone: "",
         why: ["reason", "reason"],
+        visualMeta: {
+          subject: "the literal main subject of the shot, e.g. 'a plumber's hands on a valve'",
+          environment: "where it happens, e.g. 'a cluttered home kitchen'",
+          shotType: "close-up | wide | to-camera | over-the-shoulder | flat lay",
+          styleKeywords: ["3-5 short visual descriptors"],
+        },
         attrs: {
           visualStyle: "", hookStyle: "", contentFormat: "", topic: "",
           tone: "", storytelling: "", creatorStyle: "", textDensity: "",
@@ -133,6 +163,7 @@ export async function POST(req: Request) {
       );
     }
 
+    const now = Date.now();
     const validIds = new Set(CONTENT_FORMATS.map((f) => f.id));
     const ideas: ContentIdea[] = list
       .filter((i) => i?.hook)
@@ -153,9 +184,32 @@ export async function POST(req: Request) {
         tone: String(i.tone ?? brand.business.voice).trim(),
         why: Array.isArray(i.why) ? i.why.map(String).slice(0, 4) : [],
         attrs: (i.attrs ?? {}) as ContentIdea["attrs"],
+        visualMeta: {
+          ...EMPTY_VISUAL_META,
+          subject: String(i.visualMeta?.subject ?? "").trim(),
+          environment: String(i.visualMeta?.environment ?? "").trim(),
+          shotType: String(i.visualMeta?.shotType ?? "").trim(),
+          styleKeywords: Array.isArray(i.visualMeta?.styleKeywords)
+            ? i.visualMeta.styleKeywords.map(String).slice(0, 6)
+            : [],
+        },
+        createdAt: now,
+        updatedAt: now,
+      }))
+      // Attach a preview chosen from the structured shot metadata rather than
+      // a keyword sweep of the prose, which used to match on words like
+      // "founders" and pick an office photo for a kitchen scene.
+      .map((idea) => ({
+        ...idea,
+        media: pickPreview({
+          ...idea.visualMeta,
+          formatType: idea.formatType,
+          topic: idea.topic,
+          sector: brand.business.sector,
+        }),
       }));
 
-    return NextResponse.json({ ideas });
+    return NextResponse.json({ ideas, remaining: limit.remaining });
   } catch (err) {
     if (err instanceof MissingKeyError) {
       return NextResponse.json(

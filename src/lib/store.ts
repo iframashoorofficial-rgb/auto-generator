@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_BRAND, mergeBrand, type BrandProfile } from "./brand";
 import type { ChatTurn } from "./chat-types";
 import type { QueueItem } from "./queue";
+import { isDeckSession, newDeck, sanitiseDeck, type DeckSession } from "./deck";
 
 const KEY = "format-studio.v1";
 
@@ -24,6 +25,8 @@ export interface StoredState {
   /** The onboarding / assistant conversation, so it survives a refresh. */
   turns: ChatTurn[];
   queue: QueueItem[];
+  /** The active Discover session — restored rather than re-bought. */
+  deck: DeckSession;
 }
 
 const EMPTY_STATE: StoredState = {
@@ -31,6 +34,7 @@ const EMPTY_STATE: StoredState = {
   brand: EMPTY_BRAND,
   turns: [],
   queue: [],
+  deck: newDeck("deck-0", 0),
 };
 
 function read(): StoredState {
@@ -46,6 +50,10 @@ function read(): StoredState {
       brand: mergeBrand(EMPTY_BRAND, parsed.brand),
       turns: Array.isArray(parsed.turns) ? parsed.turns : [],
       queue: Array.isArray(parsed.queue) ? parsed.queue : [],
+      // A brand saved before Discover existed simply starts with an empty deck.
+      deck: isDeckSession(parsed.deck)
+        ? parsed.deck
+        : newDeck(`deck-${Date.now()}`, Date.now()),
     };
   } catch {
     // Corrupt or unreadable storage should never block the app.
@@ -56,7 +64,10 @@ function read(): StoredState {
 function write(state: StoredState) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(state));
+    // Strip inline image bytes: they are megabytes each and would blow the
+    // ~5MB origin quota, taking the brand profile down with them.
+    const safe: StoredState = { ...state, deck: sanitiseDeck(state.deck) };
+    window.localStorage.setItem(KEY, JSON.stringify(safe));
   } catch {
     // Quota exceeded or private mode — the app still works, just forgets.
   }
@@ -107,10 +118,14 @@ export function usePersistentState() {
     setState((s) => ({ ...s, queue: update(s.queue) }));
   }, []);
 
+  const setDeck = useCallback((update: (d: DeckSession) => DeckSession) => {
+    setState((s) => ({ ...s, deck: { ...update(s.deck), updatedAt: Date.now() } }));
+  }, []);
+
   const reset = useCallback(() => {
     clearStore();
     setState(EMPTY_STATE);
   }, []);
 
-  return { ...state, hydrated, setBrand, setTurns, setQueue, reset };
+  return { ...state, hydrated, setBrand, setTurns, setQueue, setDeck, reset };
 }
