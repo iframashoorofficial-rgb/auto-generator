@@ -13,8 +13,14 @@
 import type { ContentAsset } from "./assets";
 import { SIGNAL_ATTRS, type SignalMap } from "./signals";
 
-/** Fetch more once fewer than this many undecided cards remain. */
-export const LOW_WATER = 3;
+/**
+ * Keep roughly this many undecided cards to hand.
+ *
+ * A batch is capped at four because composing finished assets is slow and the
+ * route has a 60s ceiling, so the deck fills over two or three background
+ * top-ups while the user is already swiping the first few.
+ */
+export const LOW_WATER = 9;
 /** Stop hoarding: no point holding more than the user will see in a sitting. */
 export const POOL_CAP = 24;
 

@@ -149,6 +149,16 @@ export default function Studio() {
             // Everything already in the pool, decided or not, so a top-up
             // never returns something the user has already seen.
             exclude: deck.ideas.map((i) => i.caption),
+            // The most recent likes steer this batch directly.
+            seeds: deck.ideas
+              .filter((i) => i.decided === "like")
+              .slice(-3)
+              .map((i) => ({
+                kind: i.kind,
+                angle: i.angle,
+                caption: i.caption,
+                headline: i.slides[0]?.headline ?? "",
+              })),
           }),
         });
         const data = await res.json();

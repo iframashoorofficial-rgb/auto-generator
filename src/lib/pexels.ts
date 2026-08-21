@@ -50,7 +50,21 @@ export function toQuery(meta: {
   subject?: string;
   environment?: string;
   context?: string;
+  /**
+   * Words that must lead the search — the brand's sector, for formats whose
+   * imagery is supposed to look like the business. Without this a bookkeeping
+   * carousel searched "clean desk closed laptop" and returned any desk on the
+   * internet, which is why the footage never looked like the company.
+   */
+  boost?: string;
 }): string {
+  const lead = (meta.boost ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+    .slice(0, 2);
+
   const words = [meta.subject, meta.environment]
     .filter(Boolean)
     .join(" ")
@@ -62,8 +76,10 @@ export function toQuery(meta: {
     .split(/\s+/)
     .filter((w) => w.length > 2);
 
-  // Long queries return nothing from Pexels; the first few nouns do best.
-  return words.slice(0, 5).join(" ") || meta.context || "person walking city";
+  // Long queries return nothing from Pexels; a handful of nouns does best,
+  // and the sector goes first so it dominates the match.
+  const rest = words.filter((w) => !lead.includes(w)).slice(0, lead.length ? 3 : 5);
+  return [...lead, ...rest].join(" ") || meta.context || "person walking city";
 }
 
 async function call<T>(url: string, key: string): Promise<T | null> {
@@ -79,26 +95,61 @@ async function call<T>(url: string, key: string): Promise<T | null> {
   }
 }
 
-/** A vertical clip suited to a 9:16 card, or null. */
+/** 9 / 16 — the shape of the card and of both platforms. */
+const TARGET_RATIO = 16 / 9;
+
+/**
+ * Score one file. Lower is better.
+ *
+ * Distance from 9:16 dominates, because that is what causes the visible
+ * damage: a 1:1 clip stretched to fill a 9:16 frame loses a third of its
+ * width, which is how you end up looking at a wall or the top of someone's
+ * head. Resolution is a mild tie-breaker — 540-1200px tall is the sweet spot
+ * between looking sharp and making the browser decode a 4K file.
+ */
+function scoreFile(f: PexelsVideoFile): number {
+  const w = f.width ?? 0;
+  const h = f.height ?? 0;
+  if (!w || !h) return Infinity;
+  const ratio = h / w;
+  if (ratio < 1.4) return Infinity; // square or landscape: unusable here
+  const shape = Math.abs(ratio - TARGET_RATIO) * 10;
+  // Graded, not a cliff: with a flat penalty, a 360x640 file tied with a
+  // 540x960 one on shape and won on encounter order, so the card got the
+  // blurrier clip for no reason. Below 720 tall looks soft on a phone; above
+  // 1600 is bytes the browser decodes and nobody sees.
+  const size = h < 720 ? (720 - h) / 200 : h > 1600 ? (h - 1600) / 800 : 0;
+  return shape + size;
+}
+
+/**
+ * A vertical clip suited to a 9:16 card, or null.
+ *
+ * Considers every candidate rather than taking the first result: the API
+ * returns them by relevance, not by how well they crop, and the first hit was
+ * often the worst-shaped one.
+ */
 export async function findVideo(query: string): Promise<MediaRef | null> {
   const key = process.env.PEXELS_API_KEY;
   if (!key || !query) return null;
 
-  const url = `${VIDEO_ENDPOINT}?query=${encodeURIComponent(query)}&orientation=portrait&per_page=5&size=medium`;
+  const url = `${VIDEO_ENDPOINT}?query=${encodeURIComponent(query)}&orientation=portrait&per_page=10&size=medium`;
   const data = await call<{ videos?: PexelsVideo[] }>(url, key);
-  const video = data?.videos?.[0];
-  if (!video) return null;
+  const videos = data?.videos ?? [];
+  if (!videos.length) return null;
 
-  // Prefer a portrait mp4 that is big enough to fill a card but not a 4K file
-  // the browser has to chew through.
-  const files = (video.video_files ?? []).filter((f) => f.file_type === "video/mp4");
-  const portrait = files
-    .filter((f) => (f.height ?? 0) >= (f.width ?? 0))
-    .sort((a, b) => (a.height ?? 0) - (b.height ?? 0));
-  const pick = portrait.find((f) => (f.height ?? 0) >= 900) ?? portrait[0] ?? files[0];
-  if (!pick?.link) return null;
+  let best: { file: PexelsVideoFile; poster?: string; score: number } | null = null;
+  for (const v of videos) {
+    for (const f of v.video_files ?? []) {
+      if (f.file_type !== "video/mp4" || !f.link) continue;
+      const score = scoreFile(f);
+      if (score === Infinity) continue;
+      if (!best || score < best.score) best = { file: f, poster: v.image, score };
+    }
+  }
 
-  return videoRef(pick.link, video.image, "external");
+  if (!best) return null;
+  return videoRef(best.file.link, best.poster, "external");
 }
 
 export async function findPhoto(query: string): Promise<MediaRef | null> {

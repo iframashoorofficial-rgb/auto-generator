@@ -374,25 +374,30 @@ export const FUNNY_BAR = [
  *
  * Phrased as stock-library searches because that is where they get resolved.
  */
+/**
+ * Framing matters as much as the subject. Stock search returns extreme
+ * close-ups for a bare emotion word, and a close-up cropped to 9:16 is a
+ * forehead. Naming the shot keeps the whole person in frame.
+ */
 export const REACTION_SUBJECTS = [
-  "cat staring directly at the camera",
-  "cat looking unimpressed",
-  "dog side-eye",
-  "person laughing until they cry",
-  "man covering his face with both hands",
-  "woman rolling her eyes",
-  "person collapsing face-down onto a sofa",
-  "someone slowly turning to look at the camera",
-  "person staring into the distance, dead-eyed",
-  "man shrugging exaggeratedly",
-  "woman laughing and pointing",
-  "person rubbing their temples at a desk",
-  "someone walking away from the camera",
-  "person lying on the floor",
-  "man nodding slowly with a blank expression",
-  "woman doing a double take",
-  "person hiding behind a laptop screen",
-  "someone throwing their hands up",
+  "cat sitting looking at camera",
+  "cat unimpressed medium shot",
+  "dog tilting head looking at camera",
+  "woman laughing medium shot",
+  "man covering face with hands waist up",
+  "woman rolling eyes medium shot",
+  "person falling onto sofa full body",
+  "man turning to look at camera waist up",
+  "woman staring blankly medium shot",
+  "man shrugging waist up",
+  "woman laughing pointing medium shot",
+  "person sighing at desk waist up",
+  "person walking away full body",
+  "person lying on floor full body",
+  "man nodding slowly medium shot",
+  "woman surprised double take medium shot",
+  "person peeking over laptop waist up",
+  "person throwing hands up waist up",
 ];
 
 /** Rotate so a batch never repeats a reaction. */

@@ -53,6 +53,12 @@ interface RecommendRequest {
   brand: BrandProfile;
   count?: number;
   exclude?: string[];
+  /**
+   * Recently liked cards. Weighted signals shift taste slowly across many
+   * swipes; these make a single like land immediately, which is what a person
+   * expects after saying "more like this".
+   */
+  seeds?: { kind?: string; angle?: string; caption?: string; headline?: string }[];
 }
 
 interface RawSlide {
@@ -203,6 +209,7 @@ export async function POST(req: Request) {
   // the call inside the limit and the user waiting half as long.
   const count = Math.min(Math.max(Number(body.count) || 4, 1), 6);
   const seen = Array.isArray(body.exclude) ? body.exclude.slice(-30) : [];
+  const seeds = Array.isArray(body.seeds) ? body.seeds.slice(-3) : [];
   const taste = signalBrief(brand.prefs.signals ?? {});
   const swipes = signalCount(brand.prefs.signals ?? {});
   // Rotate the pattern assignment per batch so a top-up is not a repeat.
@@ -254,7 +261,8 @@ export async function POST(req: Request) {
       .join("\n"),
     "",
     "For every slide also give the shot: subject, environment, shotType, styleKeywords. Describe a real filmable/photographable moment.",
-    "BACKGROUNDS FOR meme AND clip: the footage is a REACTION, not the product. A laughing cat, someone with their head in their hands, a person staring at the camera. Never a desk, never a laptop, never the product. Each of those assets is given a reaction subject below — use it verbatim as the slide's 'subject'.",
+    "BACKGROUNDS FOR clip: the footage is a REACTION, not the product. A laughing cat, someone with their head in their hands, a person turning to the camera. Never a desk, never a laptop, never the product. Use the reaction subject given below verbatim as the slide's 'subject'.",
+    "BACKGROUNDS FOR meme: two separate pictures. The slide 'subject' is the BACKDROP — a plain, calm, unpeopled scene (a wall, a sky, a road, a room) that the text and the reaction panel sit over. The reaction clip is chosen separately, so do not describe it in the subject.",
     "NEVER write stage direction into a headline or body. No 'TOP PANEL:', no 'Slide 2:', no 'Scene:'. Those fields hold the exact words that appear on screen and nothing else.",
     "'why' is 2-3 short strategist reasons for the brand owner. Never mention prompts, models or your own process.",
     "'attrs' classifies the asset for learning: short lowercase phrases, omit anything that does not apply, never \"n/a\".",
@@ -302,6 +310,20 @@ export async function POST(req: Request) {
     taste
       ? `DEMONSTRATED TASTE (from ${swipes} swipe signals)\n${taste}`
       : "DEMONSTRATED TASTE\nNothing yet. Spread widely so their swipes teach us the most.",
+    "",
+    seeds.length
+      ? [
+          "THEY LIKED THESE — make more in this vein:",
+          ...seeds.map(
+            (s) =>
+              `- [${s.kind ?? "?"} / ${s.angle ?? "?"}] ${(s.headline || s.caption || "").slice(0, 160)}`,
+          ),
+          "",
+          "Take what made those work — the format, the angle, the kind of joke, the level of specificity — and apply it to DIFFERENT material.",
+          "A near-copy is a failure: change the subject, the situation and the punchline. Same energy, new post.",
+          "At least half of this batch should follow that vein; keep the rest varied so the deck does not narrow to one idea.",
+        ].join("\n")
+      : "",
     "",
     seen.length ? `ALREADY SHOWN — do not repeat:\n${seen.map((s) => `- ${s}`).join("\n")}` : "",
   ]
@@ -378,6 +400,7 @@ export async function POST(req: Request) {
             ? {
                 topText: String(a.meme?.topText ?? "").trim(),
                 bottomText: String(a.meme?.bottomText ?? "").trim(),
+                reactionQuery: wanted[n]?.reaction ?? "",
               }
             : undefined,
         audioHint: kind === "reel" ? String(a.audioHint ?? "").trim() : undefined,
@@ -394,21 +417,43 @@ export async function POST(req: Request) {
     // configured. Done after composition, in one batched pass, so a missing
     // key costs nothing and the route never waits on twenty serial lookups.
     if (pexelsEnabled()) {
-      const requests = built.flatMap((a) =>
-        a.slides.map((s) => ({
+      const requests = built.flatMap((a) => [
+        // The meme's inset is a second, separate lookup: the background and
+        // the reaction are deliberately different pictures.
+        ...(a.kind === "meme" && a.meme?.reactionQuery
+          ? [
+              {
+                key: `${a.id}:reaction`,
+                query: a.meme.reactionQuery,
+                want: "video" as const,
+              },
+            ]
+          : []),
+        ...a.slides.map((s) => ({
           key: `${a.id}:${s.id}`,
-          query: toQuery({ ...s.mediaQuery, context: brand.business.sector }),
+          query: toQuery({
+            ...s.mediaQuery,
+            context: brand.business.sector,
+            // Carousels and reels should look like this business. Memes and
+            // clips deliberately should not — their footage is a reaction.
+            boost:
+              a.kind === "carousel" || a.kind === "reel"
+                ? `${brand.business.sector} ${brand.business.offering}`
+                : "",
+          }),
           want: (a.kind === "reel" || a.kind === "clip" ? "video" : "image") as
             | "image"
             | "video",
         })),
-      );
+      ]);
       const found = await findMany(requests);
       for (const a of built) {
         for (const s of a.slides) {
           const ref = found.get(`${a.id}:${s.id}`);
           if (ref) s.media = ref;
         }
+        const inset = found.get(`${a.id}:reaction`);
+        if (inset && a.meme) a.meme.reaction = inset;
       }
     }
 

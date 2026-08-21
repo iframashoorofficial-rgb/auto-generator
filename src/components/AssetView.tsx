@@ -178,18 +178,15 @@ export function MemeView({ asset, active }: { asset: ContentAsset; active: boole
     <div className="assetStage">
       <CardMedia media={mediaFor(asset, 0)} className="ideaAsset" active={active} />
       <div className="memeVeil" />
-      {m?.reaction && (
-        <div className="memeReaction">
-          <CardMedia media={m.reaction} className="memeReactionMedia" active={active} />
-        </div>
-      )}
-      <div className="memeText">
+      <div className={`memeText${m?.reaction ? " hasInset" : ""}`}>
         {m?.topText && <p className="memeLine top">{m.topText}</p>}
+        {m?.reaction && (
+          <div className="memeReaction">
+            <CardMedia media={m.reaction} className="memeReactionMedia" active={active} />
+          </div>
+        )}
         {m?.bottomText && <p className="memeLine bottom">{m.bottomText}</p>}
       </div>
-      {asset.slides[0]?.headline && (
-        <p className="memeCaptionOverlay">{asset.slides[0].headline}</p>
-      )}
     </div>
   );
 }

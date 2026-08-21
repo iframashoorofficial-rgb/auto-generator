@@ -53,8 +53,15 @@ export interface MemeLayer {
   /** Classic top/bottom meme text. Either may be empty, not both. */
   topText: string;
   bottomText: string;
-  /** Optional reaction image layered over the background. */
+  /**
+   * The funny bit, inset over the background rather than filling the frame.
+   * A full-bleed reaction leaves nowhere for the text and reads as a stock
+   * video with a caption; a smaller panel over a different backdrop reads as
+   * a meme.
+   */
   reaction?: MediaRef;
+  /** What to search for that inset. Resolved server-side. */
+  reactionQuery?: string;
 }
 
 export interface ContentAsset {
