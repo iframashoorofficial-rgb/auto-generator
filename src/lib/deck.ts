@@ -13,14 +13,14 @@
  * rather than a redesign.
  */
 
-import type { ContentIdea } from "./ideas";
+import type { ContentAsset } from "./assets";
 import { persistableMedia } from "./media";
 
 export interface DeckSession {
   /** Stable across refreshes; a new one means a genuinely new sitting. */
   id: string;
   /** The pool, in insertion order. Ranking happens at read time. */
-  ideas: ContentIdea[];
+  ideas: ContentAsset[];
   /** How many cards have been decided in this session. */
   position: number;
   createdAt: number;
@@ -40,10 +40,14 @@ export function newDeck(id: string, now: number): DeckSession {
 export function sanitiseDeck(deck: DeckSession): DeckSession {
   return {
     ...deck,
-    ideas: deck.ideas.map((idea) => {
-      const media = persistableMedia(idea.media);
-      return media ? { ...idea, media } : { ...idea, media: undefined };
-    }),
+    ideas: deck.ideas.map((asset) => ({
+      ...asset,
+      // Media now lives per slide, so every one is checked individually.
+      slides: asset.slides.map((s) => ({ ...s, media: persistableMedia(s.media) })),
+      meme: asset.meme
+        ? { ...asset.meme, reaction: persistableMedia(asset.meme.reaction) }
+        : undefined,
+    })),
   };
 }
 

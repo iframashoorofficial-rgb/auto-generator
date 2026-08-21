@@ -1,17 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { getContentFormat, type ContentIdea } from "@/lib/ideas";
-import { pickPreview } from "@/lib/pool";
-import { CardMedia } from "./CardMedia";
+import { angleLabel, assetLabel, type ContentAsset } from "@/lib/assets";
+import { AssetView } from "./AssetView";
 
 /**
- * One idea, as a card.
+ * One finished asset, as a card.
  *
- * The visual is the card — text sits over the lower third rather than beside
- * it, so this reads as social media rather than a dashboard row. Everything
- * secondary (scenes, CTA, the reasoning) stays behind "Why this?" until asked
- * for.
+ * The card shows the thing itself — the composed slides, the reel beats, the
+ * meme — with the caption and reasoning tucked underneath. Everything
+ * secondary stays behind a disclosure so the media stays the card.
  */
 export function IdeaCard({
   idea,
@@ -20,42 +18,41 @@ export function IdeaCard({
   generating,
   inert = false,
 }: {
-  idea: ContentIdea;
+  idea: ContentAsset;
   onEdit: () => void;
   onGenerateVisual: () => void;
   generating?: boolean;
   inert?: boolean;
 }) {
   const [why, setWhy] = useState(false);
-  const fmt = getContentFormat(idea.formatType);
+  const [showCaption, setShowCaption] = useState(false);
 
-  // Whatever asset the idea has: a stock still now, a generated image once
-  // asked for, a video the day one exists. Falls back to a metadata-matched
-  // preview when a restored session dropped its inline image.
-  const media =
-    idea.media ??
-    pickPreview({ ...idea.visualMeta, formatType: idea.formatType, topic: idea.topic });
+  const generated = idea.slides.some((s) => s.media?.source === "generated");
+  const hasVideo = idea.slides.some((s) => s.media?.kind === "video");
 
   return (
     <article className="ideaCard">
       <div className="ideaMedia">
-        <CardMedia media={media} className="ideaAsset" active={!inert} />
-        <div className="ideaScrim" />
+        <AssetView asset={idea} active={!inert} />
 
         <div className="ideaTags">
-          <span className="tag tagFormat">{fmt.short}</span>
+          <span className="tag tagFormat">{assetLabel(idea.kind)}</span>
+          <span className="tag">{angleLabel(idea.angle)}</span>
           {idea.platform && <span className="tag">{idea.platform}</span>}
-          {media.source === "generated" && <span className="tag tagOwn">Brand visual</span>}
-          {media.kind === "video" && <span className="tag tagOwn">Video</span>}
-        </div>
-
-        <div className="ideaCopy">
-          <h3 className="ideaHook">{idea.hook}</h3>
-          {idea.concept && <p className="ideaConcept">{idea.concept}</p>}
+          {generated && <span className="tag tagOwn">Brand visual</span>}
+          {hasVideo && <span className="tag tagOwn">Video</span>}
         </div>
       </div>
 
       <div className="ideaFoot">
+        <button
+          className="linkBtn"
+          onClick={() => setShowCaption((c) => !c)}
+          aria-expanded={showCaption}
+          disabled={inert}
+        >
+          Caption
+        </button>
         <button
           className="linkBtn"
           onClick={() => setWhy((w) => !w)}
@@ -73,13 +70,20 @@ export function IdeaCard({
           disabled={inert || generating}
           title="Generates a branded image from your Visual DNA (~4¢)"
         >
-          {generating
-            ? "Painting…"
-            : media.source === "generated"
-              ? "New visual"
-              : "Generate visual"}
+          {generating ? "Painting…" : generated ? "New visual" : "Generate visual"}
         </button>
       </div>
+
+      {showCaption && (
+        <div className="whyPanel">
+          <p className="whyTitle">Caption</p>
+          <p className="captionText">{idea.caption}</p>
+          {idea.hashtags.length > 0 && (
+            <p className="captionTags">{idea.hashtags.join(" ")}</p>
+          )}
+          {idea.audioHint && <p className="hint">Sound: {idea.audioHint}</p>}
+        </div>
+      )}
 
       {why && (
         <div className="whyPanel">
@@ -91,31 +95,10 @@ export function IdeaCard({
               ))}
             </ul>
           ) : (
-            <p className="hint">
-              Built from your brand profile — no specific reasons were recorded for this one.
-            </p>
+            <p className="hint">Built from your brand profile.</p>
           )}
-
-          <dl className="whyMeta">
-            {idea.audience && <WhyRow label="Audience" value={idea.audience} />}
-            {idea.tone && <WhyRow label="Tone" value={idea.tone} />}
-            {idea.cta && <WhyRow label="Call to action" value={idea.cta} />}
-            {idea.visualDirection && <WhyRow label="Visual" value={idea.visualDirection} />}
-            {idea.scenes.length > 0 && (
-              <WhyRow label="Scenes" value={idea.scenes.join(" → ")} />
-            )}
-          </dl>
         </div>
       )}
     </article>
-  );
-}
-
-function WhyRow({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
   );
 }

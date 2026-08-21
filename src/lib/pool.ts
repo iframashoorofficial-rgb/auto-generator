@@ -10,10 +10,7 @@
  * reorders the deck instantly and for free.
  */
 
-import type { ContentIdea } from "./ideas";
-import { getContentFormat } from "./ideas";
-import { matchPack, type Pack, type PhotoRole } from "./packs";
-import { imageRef, type MediaRef } from "./media";
+import type { ContentAsset } from "./assets";
 import { SIGNAL_ATTRS, type SignalMap } from "./signals";
 
 /** Fetch more once fewer than this many undecided cards remain. */
@@ -29,7 +26,7 @@ export const POOL_CAP = 24;
  * idea that declares nothing scores zero and sits mid-deck, which is the right
  * place for something we know nothing about.
  */
-export function scoreIdea(idea: ContentIdea, signals: SignalMap): number {
+export function scoreIdea(idea: ContentAsset, signals: SignalMap): number {
   let score = 0;
   for (const attr of SIGNAL_ATTRS) {
     const value = idea.attrs?.[attr];
@@ -48,7 +45,7 @@ export function scoreIdea(idea: ContentIdea, signals: SignalMap): number {
  * Ties keep insertion order so a reorder never looks random, and freshly
  * fetched ideas do not leapfrog older ones for no reason.
  */
-export function rankPool(pool: ContentIdea[], signals: SignalMap): ContentIdea[] {
+export function rankPool(pool: ContentAsset[], signals: SignalMap): ContentAsset[] {
   return pool
     .map((idea, i) => ({ idea, i, score: scoreIdea(idea, signals) }))
     .filter((x) => !x.idea.decided)
@@ -56,12 +53,12 @@ export function rankPool(pool: ContentIdea[], signals: SignalMap): ContentIdea[]
     .map((x) => x.idea);
 }
 
-export function undecidedCount(pool: ContentIdea[]): number {
+export function undecidedCount(pool: ContentAsset[]): number {
   return pool.filter((i) => !i.decided).length;
 }
 
 /** Drop the oldest decided cards once the pool is oversized. */
-export function trimPool(pool: ContentIdea[]): ContentIdea[] {
+export function trimPool(pool: ContentAsset[]): ContentAsset[] {
   if (pool.length <= POOL_CAP) return pool;
   const undecided = pool.filter((i) => !i.decided);
   const decided = pool.filter((i) => i.decided).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -69,71 +66,12 @@ export function trimPool(pool: ContentIdea[]): ContentIdea[] {
 }
 
 /** Do not show the same hook twice, even across batches. */
-export function dedupe(pool: ContentIdea[], incoming: ContentIdea[]): ContentIdea[] {
-  const seen = new Set(pool.map((i) => i.hook.trim().toLowerCase()));
+export function dedupe(pool: ContentAsset[], incoming: ContentAsset[]): ContentAsset[] {
+  const seen = new Set(pool.map((i) => i.caption.trim().toLowerCase()));
   return incoming.filter((i) => {
-    const key = i.hook.trim().toLowerCase();
+    const key = i.caption.trim().toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-}
-
-/* ---- Preview selection ------------------------------------------------- */
-
-/**
- * Which photo role best fits the shot the idea describes.
- *
- * The library is small, so this is about picking the least wrong of five
- * roles rather than finding a perfect match — but using the structured
- * subject/environment/shot metadata beats sweeping the whole concept string,
- * which previously matched on words like "founders" and "evenings".
- */
-const ROLE_HINTS: Record<PhotoRole, string[]> = {
-  establish: ["portrait", "to-camera", "person", "founder", "selfie", "desk", "office", "wide", "establishing"],
-  friction: ["problem", "mess", "frustrat", "broken", "pile", "clutter", "before", "struggle", "queue", "waiting"],
-  method: ["process", "hands", "working", "how", "step", "close-up", "closeup", "detail", "screen", "demo", "tool"],
-  result: ["after", "finished", "clean", "success", "result", "delivered", "outcome", "proof", "happy"],
-  repetition: ["sequence", "series", "multiple", "grid", "flat lay", "collection", "stack", "row"],
-};
-
-export interface PreviewInput {
-  subject?: string;
-  environment?: string;
-  shotType?: string;
-  styleKeywords?: string[];
-  /** Falls back to the format's declared role when metadata says nothing. */
-  formatType: string;
-  /** Used to choose the pack. */
-  topic?: string;
-  sector?: string;
-}
-
-/** Choose the stock still that best matches the described shot. */
-export function pickPreview(input: PreviewInput, packOverride?: Pack): MediaRef {
-  const fmt = getContentFormat(input.formatType);
-  const meta = [input.subject, input.environment, input.shotType, (input.styleKeywords ?? []).join(" ")]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  // Pack choice leans on the concrete environment/subject, not the hook prose.
-  const pack =
-    packOverride ??
-    matchPack([input.environment, input.subject, input.sector, input.topic].filter(Boolean).join(" "));
-
-  let role: PhotoRole = fmt.photo;
-  if (meta) {
-    let best = 0;
-    for (const [candidate, hints] of Object.entries(ROLE_HINTS) as [PhotoRole, string[]][]) {
-      const score = hints.reduce((n, h) => (meta.includes(h) ? n + 1 : n), 0);
-      if (score > best) {
-        best = score;
-        role = candidate;
-      }
-    }
-  }
-
-  const url = pack.photos[role] ?? pack.photos.establish;
-  return imageRef(url, "stock", input.subject ? `${input.subject}` : "");
 }

@@ -11,7 +11,7 @@ import { queueId, type QueueItem } from "@/lib/queue";
 import { IntakeChat } from "@/components/IntakeChat";
 import { SwipeDeck, type SwipeDir } from "@/components/SwipeDeck";
 import { IdeaEditor } from "@/components/IdeaEditor";
-import { getContentFormat, type ContentIdea } from "@/lib/ideas";
+import { assetLabel, type ContentAsset } from "@/lib/assets";
 import { LOW_WATER, dedupe, rankPool, trimPool, undecidedCount } from "@/lib/pool";
 import { imageRef } from "@/lib/media";
 import { reinforce } from "@/lib/signals";
@@ -58,8 +58,9 @@ export default function Studio() {
    * two clicks in the same tick would both see a stale `false`.
    */
   const fetchLock = useRef(false);
-  const [editing, setEditing] = useState<ContentIdea | null>(null);
+  const [editing, setEditing] = useState<ContentAsset | null>(null);
   const [ideaImaging, setIdeaImaging] = useState<Record<string, boolean>>({});
+  const [slideImaging, setSlideImaging] = useState<Record<string, boolean>>({});
 
   const [chatOpen, setChatOpen] = useState(false);
   const [chatFailed, setChatFailed] = useState(false);
@@ -147,7 +148,7 @@ export default function Studio() {
             count: 6,
             // Everything already in the pool, decided or not, so a top-up
             // never returns something the user has already seen.
-            exclude: deck.ideas.map((i) => i.hook),
+            exclude: deck.ideas.map((i) => i.caption),
           }),
         });
         const data = await res.json();
@@ -157,7 +158,7 @@ export default function Studio() {
         }
         setDeck((d) => ({
           ...d,
-          ideas: trimPool([...d.ideas, ...dedupe(d.ideas, data.ideas as ContentIdea[])]),
+          ideas: trimPool([...d.ideas, ...dedupe(d.ideas, (data.assets ?? []) as ContentAsset[])]),
         }));
       } catch {
         setError("Could not reach the recommender.");
@@ -190,10 +191,9 @@ export default function Studio() {
    * ranking; the free-text lists stay in sync for the copywriter, which
    * reads those.
    */
-  function decide(idea: ContentIdea, dir: SwipeDir) {
+  function decide(idea: ContentAsset, dir: SwipeDir) {
     const liked = dir === "like";
-    const fmt = getContentFormat(idea.formatType);
-    const signalText = `${fmt.label} · ${idea.hook}`.slice(0, 90);
+    const signalText = `${assetLabel(idea.kind)} · ${idea.angle} · ${idea.caption}`.slice(0, 90);
 
     setBrand((b) => ({
       ...b,
@@ -217,9 +217,15 @@ export default function Studio() {
     }));
   }
 
-  /** Illustrate one idea. Explicit, because it costs a few cents. */
-  async function makeIdeaImage(idea: ContentIdea) {
-    setIdeaImaging((m) => ({ ...m, [idea.id]: true }));
+  /**
+   * Paint the visual for one slide of one asset. Explicit, because each call
+   * costs a few cents — nothing here fires from a text edit.
+   */
+  async function paintSlide(asset: ContentAsset, slideIndex: number) {
+    const slide = asset.slides[slideIndex];
+    if (!slide) return;
+    setSlideImaging((m) => ({ ...m, [slide.id]: true }));
+    setIdeaImaging((m) => ({ ...m, [asset.id]: true }));
     setError(null);
     try {
       const res = await fetch("/api/image", {
@@ -228,10 +234,17 @@ export default function Studio() {
         body: JSON.stringify({
           brand,
           idea: {
-            hook: idea.hook,
-            concept: idea.concept,
-            visualDirection: idea.visualDirection,
-            formatType: idea.formatType,
+            hook: slide.headline,
+            concept: asset.caption,
+            visualDirection: [
+              slide.mediaQuery.subject,
+              slide.mediaQuery.environment,
+              slide.mediaQuery.shotType,
+              (slide.mediaQuery.styleKeywords ?? []).join(", "),
+            ]
+              .filter(Boolean)
+              .join(" — "),
+            formatType: asset.kind,
           },
         }),
       });
@@ -240,33 +253,38 @@ export default function Studio() {
         setError(data.error || "Image generation failed.");
         return;
       }
-      // Inline base64 — held for this session only. The store strips it on
-      // save, so a refresh falls back to the stock preview rather than
-      // silently blowing the storage quota.
+      // Inline base64, session only: the store strips it on save so a refresh
+      // falls back to the stock still rather than blowing the quota.
       setDeck((d) => ({
         ...d,
-        ideas: d.ideas.map((i) =>
-          i.id === idea.id
+        ideas: d.ideas.map((a) =>
+          a.id === asset.id
             ? {
-                ...i,
-                media: imageRef(data.dataUrl, "generated", i.visualMeta.subject),
+                ...a,
                 updatedAt: Date.now(),
+                slides: a.slides.map((s, k) =>
+                  k === slideIndex
+                    ? { ...s, media: imageRef(data.dataUrl, "generated", s.mediaQuery.subject) }
+                    : s,
+                ),
               }
-            : i,
+            : a,
         ),
       }));
     } catch {
       setError("Could not reach the image service.");
     } finally {
-      setIdeaImaging((m) => ({ ...m, [idea.id]: false }));
+      setSlideImaging((m) => ({ ...m, [slide.id]: false }));
+      setIdeaImaging((m) => ({ ...m, [asset.id]: false }));
     }
   }
 
-  /** Send a liked idea into the studio to be written properly. */
-  function buildIdea(idea: ContentIdea) {
-    const fmt = getContentFormat(idea.formatType);
-    if (fmt.formatId) setFormatId(fmt.formatId);
-    setSteer(idea.hook);
+  /** The card's Generate visual button paints the opening frame. */
+  const makeIdeaImage = (asset: ContentAsset) => void paintSlide(asset, 0);
+
+  /** Send a liked asset into the studio for frame-by-frame work. */
+  function buildIdea(asset: ContentAsset) {
+    setSteer(asset.slides[0]?.headline ?? asset.caption);
     setSlots(null);
     setGenerated({});
     setView("studio");
@@ -640,10 +658,10 @@ export default function Studio() {
                         const i = ideas[0];
                         setQueue((q) => [
                           {
-                            id: queueId(i.hook, q.length),
-                            title: i.hook,
-                            angle: `${getContentFormat(i.formatType).label} · ${i.platform}`,
-                            formatId: getContentFormat(i.formatType).formatId ?? formatId,
+                            id: queueId(i.caption, q.length),
+                            title: i.slides[0]?.headline ?? i.caption,
+                            angle: `${assetLabel(i.kind)} · ${i.angle} · ${i.platform}`,
+                            formatId,
                             status: "idea",
                             createdAt: Date.now(),
                           },
@@ -832,10 +850,20 @@ export default function Studio() {
         <IdeaEditor
           idea={editing}
           onCancel={() => setEditing(null)}
+          regenerating={slideImaging}
+          onRegenerateSlide={(asset, i) => {
+            // Keep the sheet in sync so the new image shows without reopening.
+            void paintSlide(asset, i).then(() =>
+              setEditing((cur) =>
+                cur && cur.id === asset.id
+                  ? { ...cur, slides: cur.slides.map((s, k) => (k === i ? { ...s } : s)) }
+                  : cur,
+              ),
+            );
+          }}
           onSave={(next) => {
-            // A text edit is a local change only — never a paid regeneration.
             // A local edit only. Never triggers a paid regeneration — the
-            // visual changes solely via the explicit Generate visual action.
+            // visual changes solely via the explicit regenerate action.
             setDeck((d) => ({
               ...d,
               ideas: d.ideas.map((i) =>

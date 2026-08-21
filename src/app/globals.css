@@ -494,3 +494,128 @@ button.mini:hover { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   .circleBtn, .deckCard { transition: none !important; }
 }
+
+/* ---- Finished assets: shared stage ------------------------------------- */
+
+.assetStage { position: absolute; inset: 0; overflow: hidden; }
+
+/* ---- Carousel ----------------------------------------------------------- */
+
+.slideCopy { position: absolute; left: 20px; right: 20px; bottom: 62px; }
+.slideIndex {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.18em; color: var(--accent); margin: 0 0 8px;
+}
+.slideHead {
+  font-size: 26px; line-height: 1.14; font-weight: 600; letter-spacing: -0.02em;
+  margin: 0 0 8px; text-wrap: balance; text-shadow: 0 2px 18px rgba(0,0,0,0.6);
+}
+.slideBody {
+  font-size: 13.5px; line-height: 1.5; color: rgba(236,234,230,0.86); margin: 0;
+  text-shadow: 0 1px 10px rgba(0,0,0,0.6);
+}
+
+.slideNav {
+  position: absolute; left: 14px; right: 14px; bottom: 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.navArrow {
+  width: 34px; height: 34px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; font-size: 15px; line-height: 1;
+  background: rgba(8,9,11,0.58); border: 1px solid rgba(255,255,255,0.16);
+  color: var(--ink); backdrop-filter: blur(8px);
+}
+.navArrow:disabled { opacity: 0.3; }
+.dots { display: flex; gap: 6px; }
+.dot {
+  width: 7px; height: 7px; padding: 0; border-radius: 50%;
+  background: rgba(255,255,255,0.32); border: 0;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.dot.on { background: var(--accent); transform: scale(1.32); }
+
+/* ---- Reel --------------------------------------------------------------- */
+
+.beatBar { position: absolute; top: 12px; left: 14px; right: 14px; display: flex; gap: 4px; }
+.beatSeg {
+  flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.26);
+  transition: background 0.25s ease;
+}
+.beatSeg.on { background: var(--accent); }
+.reelCopy {
+  position: absolute; left: 24px; right: 24px; top: 50%;
+  transform: translateY(-50%); text-align: center;
+}
+.reelText {
+  font-size: 30px; line-height: 1.14; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0 0 10px; text-wrap: balance; text-shadow: 0 3px 22px rgba(0,0,0,0.72);
+}
+.reelBar {
+  position: absolute; left: 14px; right: 14px; bottom: 14px;
+  display: flex; align-items: center; gap: 9px;
+}
+.reelMeta {
+  margin-left: auto;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.12em; color: rgba(236,234,230,0.75);
+  background: rgba(8,9,11,0.55); padding: 5px 9px; border-radius: 999px;
+  backdrop-filter: blur(8px);
+}
+
+/* ---- Meme --------------------------------------------------------------- */
+
+.memeVeil { position: absolute; inset: 0; background: rgba(6,7,9,0.28); }
+.memeText {
+  position: absolute; inset: 0; padding: 26px 18px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  text-align: center; pointer-events: none;
+}
+.memeLine {
+  margin: 0; font-weight: 800; text-transform: uppercase;
+  font-size: 27px; line-height: 1.1; letter-spacing: -0.01em;
+  color: #fff; text-wrap: balance;
+  /* The classic meme outline, without needing a webfont. */
+  text-shadow:
+    -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+    0 3px 14px rgba(0,0,0,0.5);
+}
+.memeReaction {
+  position: absolute; right: 14px; bottom: 78px;
+  width: 38%; aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.5);
+}
+.memeReactionMedia { width: 100%; height: 100%; object-fit: cover; }
+.memeCaptionOverlay {
+  position: absolute; left: 16px; right: 16px; bottom: 16px;
+  margin: 0; font-size: 12.5px; line-height: 1.5;
+  color: rgba(236,234,230,0.9); text-align: center;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.75);
+}
+
+/* ---- Caption + editor additions ---------------------------------------- */
+
+.captionText { font-size: 13px; line-height: 1.6; margin: 0 0 8px; white-space: pre-wrap; }
+.captionTags { font-size: 12px; color: var(--accent); margin: 0 0 8px; }
+.slidesTitle { margin: 22px 0 10px; }
+.slideList { display: flex; flex-direction: column; gap: 12px; }
+.slideEdit {
+  border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  background: var(--panel2); display: flex; flex-direction: column; gap: 8px;
+}
+.slideEditHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.slideNo {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.16em; color: var(--accent);
+}
+.slideEditActions { display: flex; gap: 5px; flex-wrap: wrap; }
+.slideMetaRow { display: flex; gap: 8px; align-items: center; }
+.slideMetaRow input[type="text"] { flex: 1; }
+.durField { display: flex; align-items: center; gap: 5px; }
+.durField input { width: 82px; }
+.editWarn { margin-top: 14px; }
+
+@media (max-width: 560px) {
+  .slideHead { font-size: 22px; }
+  .reelText { font-size: 25px; }
+  .memeLine { font-size: 22px; }
+}

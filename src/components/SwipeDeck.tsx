@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ContentIdea } from "@/lib/ideas";
+import type { ContentAsset } from "@/lib/assets";
 import { IdeaCard } from "./IdeaCard";
 
 /**
@@ -38,10 +38,10 @@ export function SwipeDeck({
   busy,
   onMore,
 }: {
-  ideas: ContentIdea[];
-  onDecide: (idea: ContentIdea, dir: SwipeDir) => void;
-  onEdit: (idea: ContentIdea) => void;
-  onGenerateVisual: (idea: ContentIdea) => void;
+  ideas: ContentAsset[];
+  onDecide: (idea: ContentAsset, dir: SwipeDir) => void;
+  onEdit: (idea: ContentAsset) => void;
+  onGenerateVisual: (idea: ContentAsset) => void;
   generating: Record<string, boolean>;
   busy?: boolean;
   onMore: () => void;
