@@ -3,6 +3,7 @@ import { generateImage, MissingKeyError, UpstreamError } from "@/lib/openrouter"
 import { buildSlidePrompt, defaultVisual } from "@/lib/visual-prompt";
 import { EMPTY_BRAND, mergeBrand, type BrandProfile } from "@/lib/brand";
 import { getFormat } from "@/lib/formats";
+import { IMAGE_LIMIT, callerKey, checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 // Image generation is slow; the default 10s Hobby limit would cut it off.
@@ -27,6 +28,21 @@ interface ImageRequest {
 }
 
 export async function POST(req: Request) {
+  // Checked before the body is read: a blocked caller should cost nothing.
+  const limit = checkRateLimit(callerKey(req), IMAGE_LIMIT);
+  if (!limit.ok) {
+    return NextResponse.json(
+      {
+        error:
+          limit.scope === "global"
+            ? "The studio is generating a lot of images right now. Try again shortly."
+            : "That's a lot of images in a short time. Take a breather and try again shortly.",
+        retryAfter: limit.retryAfter,
+      },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
+  }
+
   let body: ImageRequest;
   try {
     body = (await req.json()) as ImageRequest;
@@ -61,7 +77,10 @@ export async function POST(req: Request) {
 
   try {
     const { dataUrl, model } = await generateImage(prompt, body.references ?? []);
-    return NextResponse.json({ dataUrl, model, prompt });
+    return NextResponse.json(
+      { dataUrl, model, prompt, remaining: limit.remaining },
+      { headers: { "X-RateLimit-Remaining": String(limit.remaining) } },
+    );
   } catch (err) {
     if (err instanceof MissingKeyError) {
       return NextResponse.json(
