@@ -18,6 +18,14 @@ import {
   type ContentAsset,
 } from "@/lib/assets";
 import { findMedia } from "@/lib/media-sources";
+import { findMany, pexelsEnabled, toQuery } from "@/lib/pexels";
+import {
+  BANNED_PHRASES,
+  COMEDY_RULES,
+  NATIVE_RULES,
+  patternsFor,
+  type PostPattern,
+} from "@/lib/comedy";
 import { RECOMMEND_LIMIT, callerKey, checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -63,13 +71,28 @@ interface RawAsset {
 
 const KINDS: AssetKind[] = ["reel", "meme", "carousel"];
 
-/** Spread the batch across formats and angles rather than hoping for variety. */
-function plan(count: number): { kind: AssetKind; angle: AngleId }[] {
+/**
+ * Spread the batch across formats, angles and post patterns.
+ *
+ * Assigning a recognisable structure up front is what stopped every card
+ * sounding like the same competent marketing paragraph. Comic angles are
+ * restricted to comic patterns so a meme never gets handed "3 things I wish
+ * I knew".
+ */
+function plan(
+  count: number,
+  seed: number,
+): { kind: AssetKind; angle: AngleId; pattern: PostPattern }[] {
   const angles = ANGLES.map((a) => a.id);
-  return Array.from({ length: count }, (_, i) => ({
-    kind: KINDS[i % KINDS.length],
-    angle: angles[i % angles.length] as AngleId,
-  }));
+  const comicAngles = new Set(["meme", "pov-joke", "relatable"]);
+
+  return Array.from({ length: count }, (_, i) => {
+    const kind = KINDS[i % KINDS.length];
+    const angle = angles[(i + seed) % angles.length] as AngleId;
+    const options = patternsFor(kind, comicAngles.has(angle));
+    const pool = options.length ? options : patternsFor(kind);
+    return { kind, angle, pattern: pool[(i + seed) % pool.length] };
+  });
 }
 
 export async function POST(req: Request) {
@@ -102,7 +125,8 @@ export async function POST(req: Request) {
   const seen = Array.isArray(body.exclude) ? body.exclude.slice(-30) : [];
   const taste = signalBrief(brand.prefs.signals ?? {});
   const swipes = signalCount(brand.prefs.signals ?? {});
-  const wanted = plan(count);
+  // Rotate the pattern assignment per batch so a top-up is not a repeat.
+  const wanted = plan(count, Math.floor(Date.now() / 60000));
 
   const system = [
     "You are a social-media creative producing FINISHED, POSTABLE assets for one brand.",
@@ -112,8 +136,15 @@ export async function POST(req: Request) {
     '  Right: slide 1 headline "You are paying someone to retype invoices", slide 2 ...',
     "  Every slide carries the words that will appear on screen. Every asset has a caption you could paste straight into the app.",
     "",
-    "Write like a person who posts, not like an agency. Short lines. Real speech. No 'unlock', 'elevate', 'game-changer', no emoji soup, no hashtag walls.",
-    "Humour is allowed and encouraged for meme, POV and relatable angles. Those must be genuinely funny, not corporate-funny.",
+    "Write like a person who posts, not like an agency.",
+    "",
+    "HOW TO BE FUNNY (this is the part that usually fails)",
+    ...COMEDY_RULES.map((r) => `- ${r}`),
+    "",
+    "HOW TO LOOK NATIVE",
+    ...NATIVE_RULES.map((r) => `- ${r}`),
+    "",
+    `NEVER use these phrases: ${BANNED_PHRASES.join(", ")}.`,
     "",
     "FORMATS",
     `- reel: ${REEL_MIN}-${REEL_MAX} beats. Each beat = one on-screen text card over footage, with durationMs (1200-3000). Include audioHint.`,
@@ -123,8 +154,14 @@ export async function POST(req: Request) {
     "ANGLES",
     ANGLES.map((a) => `- ${a.id}: ${a.brief}`).join("\n"),
     "",
-    "Produce exactly these, in this order:",
-    wanted.map((w, i) => `${i + 1}. kind=${w.kind}, angle=${w.angle}`).join("\n"),
+    "Produce exactly these, in this order. Follow each assigned PATTERN — it is",
+    "the recognisable shape that makes a post read as native rather than as an ad:",
+    wanted
+      .map(
+        (w, i) =>
+          `${i + 1}. kind=${w.kind}, angle=${w.angle}\n     pattern "${w.pattern.id}": ${w.pattern.template}\n     why it lands: ${w.pattern.note}`,
+      )
+      .join("\n"),
     "",
     "For every slide also give the shot: subject, environment, shotType, styleKeywords. Describe a real filmable/photographable moment.",
     "'why' is 2-3 short strategist reasons for the brand owner. Never mention prompts, models or your own process.",
@@ -257,6 +294,26 @@ export async function POST(req: Request) {
 
     // The gate. A brief must never reach the queue, so anything that fails
     // publishability is dropped rather than shown.
+    // Upgrade the bundled stills to real footage where a stock provider is
+    // configured. Done after composition, in one batched pass, so a missing
+    // key costs nothing and the route never waits on twenty serial lookups.
+    if (pexelsEnabled()) {
+      const requests = built.flatMap((a) =>
+        a.slides.map((s) => ({
+          key: `${a.id}:${s.id}`,
+          query: toQuery({ ...s.mediaQuery, context: brand.business.sector }),
+          want: (a.kind === "reel" ? "video" : "image") as "image" | "video",
+        })),
+      );
+      const found = await findMany(requests);
+      for (const a of built) {
+        for (const s of a.slides) {
+          const ref = found.get(`${a.id}:${s.id}`);
+          if (ref) s.media = ref;
+        }
+      }
+    }
+
     const assets = built.filter((a) => publishProblems(a).length === 0);
     const rejected = built
       .filter((a) => publishProblems(a).length > 0)
