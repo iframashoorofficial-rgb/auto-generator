@@ -225,3 +225,90 @@ button.mini:hover { color: var(--ink); }
   .chatOverlay { padding: 12px; }
   .chatBubble { right: 16px; bottom: 16px; }
 }
+
+/* ---- Brand progress ---------------------------------------------------- */
+/* Segments rather than a smooth bar: each pip is one thing we know. */
+
+.bp { margin-bottom: 4px; }
+.bpTop { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.bpFace { font-size: 15px; line-height: 1; }
+.bpLabel {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+}
+.bpPct { margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 600; }
+.bpTrack { display: flex; gap: 3px; }
+.bpPip {
+  flex: 1; height: 7px; border-radius: 4px; background: var(--panel2);
+  border: 1px solid var(--line);
+  transition: background 0.35s ease, border-color 0.35s ease, transform 0.35s ease;
+}
+.bpPip.on {
+  background: var(--accent); border-color: var(--accent);
+  transform: scaleY(1.22);
+}
+.bpNote { font-size: 11px; color: var(--muted); margin: 9px 0 0; line-height: 1.5; }
+.bpCompact { margin: 2px 0 14px; }
+.bpCompact .bpTrack { gap: 2px; }
+.bpCompact .bpPip { height: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  .bpPip { transition: none; }
+  .bpPip.on { transform: none; }
+}
+
+/* ---- Brand memory panel ------------------------------------------------ */
+
+.brandHead {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.brandHead h2 { margin-bottom: 0; }
+.tabs { display: flex; gap: 6px; }
+.tabs .mini[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.brandIntro { margin: 0 0 12px; }
+.brandGrid { display: grid; gap: 12px; }
+.bfield { display: flex; flex-direction: column; gap: 5px; }
+.bfHint { font-size: 10px; color: var(--muted); }
+.sideRow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.sig {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  color: var(--accent); background: var(--panel2);
+  padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line);
+}
+
+/* ---- Carousel actions -------------------------------------------------- */
+
+.actRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.remixRow { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.actLabel {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+}
+.okNote { font-size: 13px; color: var(--accent); margin: 10px 0 0; }
+
+/* ---- Content queue ----------------------------------------------------- */
+
+.queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.qItem {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 9px;
+  background: var(--panel2); padding: 11px 12px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.q-idea { border-left-color: var(--line); }
+.q-draft { border-left-color: var(--muted); }
+.q-ready { border-left-color: var(--accent); }
+.q-published { border-left-color: #3d5a43; opacity: 0.62; }
+.qMain { display: flex; flex-direction: column; gap: 4px; }
+.qTitle { font-size: 13px; line-height: 1.45; }
+.qAngle { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.qRow { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.qRow select { width: auto; font-size: 11px; padding: 5px 7px; }
+
+/* ---- Assistant bubble badge -------------------------------------------- */
+
+.chatBubble { position: fixed; }
+.bubbleDot {
+  position: absolute; top: 3px; right: 3px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--danger); border: 2px solid var(--ground);
+}

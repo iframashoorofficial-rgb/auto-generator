@@ -115,3 +115,72 @@ export function parseJsonLoose<T>(raw: string): T | null {
   }
   return null;
 }
+
+/* ---- Image generation ------------------------------------------------- */
+
+/**
+ * OpenRouter serves image models through the same chat endpoint: ask for the
+ * "image" modality and the reply carries data URLs alongside any text.
+ *
+ * Model is configurable because price varies by an order of magnitude between
+ * providers and this is the one call in the app that costs real money per use.
+ */
+export const IMAGE_MODEL =
+  process.env.OPENROUTER_IMAGE_MODEL || "google/gemini-2.5-flash-image";
+
+export interface ImageResult {
+  /** data:image/...;base64,... — ready to use as an <img> src or canvas source. */
+  dataUrl: string;
+  model: string;
+}
+
+/**
+ * Generate one image.
+ *
+ * `references` are data URLs of earlier slides. Passing them is what keeps a
+ * set consistent: the model is shown the look rather than only told it, which
+ * matters more than any amount of prompt wording.
+ */
+export async function generateImage(
+  prompt: string,
+  references: string[] = [],
+): Promise<ImageResult> {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new MissingKeyError();
+
+  const content: Record<string, unknown>[] = [{ type: "text", text: prompt }];
+  // Cap references — each one is megabytes of base64 on the request.
+  for (const ref of references.slice(0, 2)) {
+    content.push({ type: "image_url", image_url: { url: ref } });
+  }
+
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
+      "X-Title": "Format Studio",
+    },
+    body: JSON.stringify({
+      model: IMAGE_MODEL,
+      modalities: ["image", "text"],
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new UpstreamError(res.status, detail.slice(0, 500) || res.statusText);
+  }
+
+  const data = (await res.json()) as {
+    choices?: {
+      message?: { images?: { image_url?: { url?: string } }[] };
+    }[];
+  };
+
+  const url = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  if (!url) throw new UpstreamError(502, "The model returned no image");
+  return { dataUrl: url, model: IMAGE_MODEL };
+}

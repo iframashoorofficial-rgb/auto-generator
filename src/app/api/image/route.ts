@@ -1,0 +1,81 @@
+import { NextResponse } from "next/server";
+import { generateImage, MissingKeyError, UpstreamError } from "@/lib/openrouter";
+import { buildSlidePrompt, defaultVisual } from "@/lib/visual-prompt";
+import { EMPTY_BRAND, mergeBrand, type BrandProfile } from "@/lib/brand";
+import { getFormat } from "@/lib/formats";
+
+export const runtime = "nodejs";
+// Image generation is slow; the default 10s Hobby limit would cut it off.
+export const maxDuration = 60;
+
+/**
+ * Slide image generation.
+ *
+ * The prompt is composed server-side from the brand's Visual DNA so the client
+ * cannot accidentally drop the constant style layer — that layer is the whole
+ * reason a set looks like a set.
+ */
+
+interface ImageRequest {
+  brand: BrandProfile;
+  formatId: string;
+  frameIndex: number;
+  /** Copy already written for this slide, if any. */
+  copy?: string;
+  /** Earlier slides from this same carousel, as data URLs. */
+  references?: string[];
+}
+
+export async function POST(req: Request) {
+  let body: ImageRequest;
+  try {
+    body = (await req.json()) as ImageRequest;
+  } catch {
+    return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
+  }
+
+  const brand = mergeBrand(EMPTY_BRAND, body.brand);
+  const format = getFormat(body.formatId);
+  const index = Number(body.frameIndex) || 0;
+  const frame = format.frames[index];
+
+  if (!frame) {
+    return NextResponse.json({ error: "No such slide." }, { status: 400 });
+  }
+
+  // Fall back to a sane house style rather than refusing when the brand has
+  // not described a look yet.
+  const dna = brand.visual.aesthetic
+    ? brand.visual
+    : { ...defaultVisual(brand.business.sector), ...brand.visual };
+
+  const prompt = buildSlidePrompt({
+    brand,
+    dna,
+    format,
+    frame,
+    index,
+    total: format.frames.length,
+    copy: body.copy,
+  });
+
+  try {
+    const { dataUrl, model } = await generateImage(prompt, body.references ?? []);
+    return NextResponse.json({ dataUrl, model, prompt });
+  } catch (err) {
+    if (err instanceof MissingKeyError) {
+      return NextResponse.json(
+        { error: "No OpenRouter key. Add OPENROUTER_API_KEY and restart." },
+        { status: 503 },
+      );
+    }
+    if (err instanceof UpstreamError) {
+      const hint =
+        err.status === 402
+          ? "OpenRouter is out of credit."
+          : `The image model refused the request (${err.status}).`;
+      return NextResponse.json({ error: hint }, { status: 502 });
+    }
+    return NextResponse.json({ error: "Image generation failed." }, { status: 500 });
+  }
+}

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { chat, parseJsonLoose, MissingKeyError, UpstreamError } from "@/lib/openrouter";
 import { EMPTY_PROFILE, profileSummary, type BusinessProfile } from "@/lib/profile";
+import { EMPTY_BRAND, brandSummary, mergeBrand, type BrandProfile } from "@/lib/brand";
 import { getFormat } from "@/lib/formats";
+import { REMIX_MODES, remixInstruction, type RemixMode } from "@/lib/remix";
 
 export const runtime = "nodejs";
 
@@ -12,6 +14,12 @@ interface GenerateRequest {
   attempt?: number;
   /** Free-text steer from the user, e.g. "funnier", "lead with price". */
   steer?: string;
+  /** Brand memory — carries learned preferences into the writing. */
+  brand?: BrandProfile;
+  /** Set when this run came from the Remix action. */
+  remix?: RemixMode;
+  /** The copy being remixed, so the model can vary from it deliberately. */
+  previous?: Record<string, string>;
 }
 
 export async function POST(req: Request) {
@@ -23,8 +31,12 @@ export async function POST(req: Request) {
   }
 
   const format = getFormat(body.formatId);
-  const profile = body.profile ?? EMPTY_PROFILE;
+  const brand = mergeBrand(EMPTY_BRAND, body.brand);
+  // Prefer the brand record; fall back to a bare profile for older callers.
+  const profile = brand.business.name ? brand.business : body.profile ?? EMPTY_PROFILE;
   const attempt = Number(body.attempt) || 0;
+  const remix: RemixMode | null =
+    body.remix && REMIX_MODES.some((m) => m.id === body.remix) ? body.remix : null;
 
   const slotSpec = format.slots
     .map((s) => `- ${s.key}: ${s.intent} (max ~${s.max} characters)`)
@@ -56,16 +68,26 @@ export async function POST(req: Request) {
       ? `This is regeneration #${attempt}. Take a genuinely different angle from the obvious one — different entry point, different emphasis. Do not merely reword.`
       : "",
     body.steer ? `The user asked for: ${body.steer}` : "",
+    remix ? remixInstruction(remix) : "",
     "",
     "Reply with JSON only: an object whose keys are exactly the slot keys above and whose values are strings.",
   ]
     .filter(Boolean)
     .join("\n");
 
+  const learned = brandSummary(brand);
   const user = [
     "Business profile:",
     profileSummary(profile) || "(empty — say so rather than inventing one)",
-  ].join("\n");
+    learned ? `\nWhat we know about this brand and what they respond to:\n${learned}` : "",
+    remix && body.previous
+      ? `\nThe version being remixed:\n${Object.entries(body.previous)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
     const raw = await chat(
