@@ -194,6 +194,29 @@ export function MemeView({ asset, active }: { asset: ContentAsset; active: boole
   );
 }
 
+/**
+ * The rant-over-footage format.
+ *
+ * One clip, one block of first-person text. The text sits in the safe zone —
+ * never the bottom third, where TikTok and Instagram put the caption, the
+ * username and the action rail — and the lines break naturally so it reads
+ * like something typed, not laid out.
+ */
+export function ClipView({ asset, active }: { asset: ContentAsset; active: boolean }) {
+  const slide = asset.slides[0];
+  const lines = [slide?.headline, slide?.body].filter(Boolean).join("\n\n");
+
+  return (
+    <div className="assetStage">
+      <CardMedia media={mediaFor(asset, 0)} className="ideaAsset" active={active} />
+      <div className="clipVeil" />
+      <div className="safeZone">
+        <p className="clipText">{lines}</p>
+      </div>
+    </div>
+  );
+}
+
 /* ---- Dispatcher --------------------------------------------------------- */
 
 export function AssetView({ asset, active }: { asset: ContentAsset; active: boolean }) {
@@ -207,6 +230,7 @@ export function AssetView({ asset, active }: { asset: ContentAsset; active: bool
         </div>
       );
     }
+    if (asset.kind === "clip") return <ClipView asset={asset} active={active} />;
     if (asset.kind === "reel") return <ReelView asset={asset} active={active} />;
     if (asset.kind === "meme") return <MemeView asset={asset} active={active} />;
     return <CarouselView asset={asset} active={active} />;

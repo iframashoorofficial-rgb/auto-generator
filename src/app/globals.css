@@ -501,7 +501,9 @@ button.mini:hover { color: var(--ink); }
 
 /* ---- Carousel ----------------------------------------------------------- */
 
-.slideCopy { position: absolute; left: 20px; right: 20px; bottom: 62px; }
+.slideCopy {
+  position: absolute; left: 5%; right: var(--safe-right); bottom: var(--safe-bottom);
+}
 .slideIndex {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 10px; letter-spacing: 0.18em; color: var(--accent); margin: 0 0 8px;
@@ -566,7 +568,9 @@ button.mini:hover { color: var(--ink); }
 
 .memeVeil { position: absolute; inset: 0; background: rgba(6,7,9,0.28); }
 .memeText {
-  position: absolute; inset: 0; padding: 26px 18px;
+  position: absolute;
+  top: var(--safe-top); left: 5%;
+  right: var(--safe-right); bottom: var(--safe-bottom);
   display: flex; flex-direction: column; justify-content: space-between;
   text-align: center; pointer-events: none;
 }
@@ -618,4 +622,55 @@ button.mini:hover { color: var(--ink); }
   .slideHead { font-size: 22px; }
   .reelText { font-size: 25px; }
   .memeLine { font-size: 22px; }
+}
+
+
+/* ---- Platform safe zone -------------------------------------------------
+   TikTok and Instagram paint their own UI over the frame: the caption,
+   username and music row across the bottom, and the like/comment/share rail
+   down the right. Anything drawn there is covered in the feed, so overlay
+   text is confined to what is left.
+   Percentages, not pixels: the card is one size in the deck and another
+   at 1080x1920 on export, and the platform UI scales with the frame. */
+
+:root {
+  --safe-top: 6%;
+  --safe-bottom: 26%;
+  --safe-right: 14%;
+}
+
+.safeZone {
+  position: absolute;
+  top: var(--safe-top); left: 5%;
+  right: var(--safe-right); bottom: var(--safe-bottom);
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+
+/* ---- Clip: a rant over unrelated footage -------------------------------- */
+
+.clipVeil {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg,
+    rgba(6,7,9,0.46) 0%, rgba(6,7,9,0.30) 45%,
+    rgba(6,7,9,0.30) 70%, rgba(6,7,9,0.72) 100%);
+}
+
+.clipText {
+  margin: 0; text-align: center; color: #fff;
+  /* Long-form on purpose: this format runs 25-70 words. */
+  font-size: 15px; line-height: 1.5; font-weight: 600;
+  letter-spacing: -0.005em;
+  /* Preserve the blank line between paragraphs the composer writes. */
+  white-space: pre-line;
+  text-wrap: pretty;
+  max-height: 100%; overflow: hidden;
+  text-shadow:
+    -1.5px -1.5px 0 rgba(0,0,0,0.85), 1.5px -1.5px 0 rgba(0,0,0,0.85),
+    -1.5px 1.5px 0 rgba(0,0,0,0.85), 1.5px 1.5px 0 rgba(0,0,0,0.85),
+    0 2px 12px rgba(0,0,0,0.6);
+}
+
+@media (max-width: 560px) {
+  .clipText { font-size: 14px; }
 }

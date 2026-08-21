@@ -29,6 +29,11 @@ export interface BusinessProfile {
   avoid: string[];
   /** Industry hint used to choose photography. */
   sector: string;
+  /**
+   * Who customers usually go to instead, by name. Optional: without it the
+   * competitor-contrast template falls back to `alternative`, the manual way.
+   */
+  competitor?: string;
 }
 
 export const EMPTY_PROFILE: BusinessProfile = {
@@ -43,6 +48,7 @@ export const EMPTY_PROFILE: BusinessProfile = {
   callToAction: "",
   avoid: [],
   sector: "",
+  competitor: "",
 };
 
 /** Fields the agent must fill before we consider the profile usable. */

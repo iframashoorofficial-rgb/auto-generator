@@ -14,7 +14,7 @@ import type { MediaRef } from "./media";
 import type { SignalAttr } from "./signals";
 import type { VisualMeta } from "./ideas";
 
-export type AssetKind = "reel" | "meme" | "carousel";
+export type AssetKind = "reel" | "meme" | "carousel" | "clip";
 
 /**
  * The editorial angle, kept separate from the format.
@@ -83,6 +83,14 @@ export const CAROUSEL_MIN = 4;
 export const CAROUSEL_MAX = 7;
 export const REEL_MIN = 3;
 export const REEL_MAX = 6;
+/** The rant-over-a-clip format lives or dies on being long enough to read as
+ *  a real person venting rather than a caption. */
+export const CLIP_MIN_WORDS = 25;
+export const CLIP_MAX_WORDS = 70;
+
+function wordCount(s: string | undefined): number {
+  return (s ?? "").trim().split(/\s+/).filter(Boolean).length;
+}
 
 /**
  * The gate.
@@ -114,6 +122,26 @@ export function publishProblems(a: ContentAsset): string[] {
     }
   }
 
+  if (a.kind === "clip") {
+    // One clip, one rant. The whole format is a single text block laid over
+    // unrelated footage, so a "clip" with five slides is a reel by mistake.
+    if (a.slides.length !== 1) {
+      problems.push(`clip needs exactly 1 text block, has ${a.slides.length}`);
+    }
+    const words = wordCount(a.slides[0]?.headline) + wordCount(a.slides[0]?.body);
+    if (words < CLIP_MIN_WORDS) {
+      problems.push(`clip text is too short (${words} words, needs ${CLIP_MIN_WORDS}+)`);
+    }
+    if (words > CLIP_MAX_WORDS) {
+      problems.push(`clip text is too long (${words} words, max ${CLIP_MAX_WORDS})`);
+    }
+    // The voice is the format. Sentence case means it was written as an ad.
+    const text = `${a.slides[0]?.headline ?? ""} ${a.slides[0]?.body ?? ""}`;
+    if (/[.!?]\s*$/.test(text.trim())) {
+      problems.push("clip text ends with punctuation — this format does not");
+    }
+  }
+
   if (a.kind === "meme") {
     const m = a.meme;
     if (!m || (!hasText(m.topText) && !hasText(m.bottomText))) {
@@ -121,10 +149,16 @@ export function publishProblems(a: ContentAsset): string[] {
     }
   }
 
-  // The tell-tale of a brief rather than an asset.
+  // The tell-tales of a brief rather than an asset.
   const briefish = /^(an?|the)\s+(educational|informative|engaging)\b|piece (that|explaining)|content that|a post (about|explaining)/i;
   if (a.slides.some((s) => briefish.test(s.headline))) {
     problems.push("a slide describes the content instead of being it");
+  }
+
+  // Stage direction: notes to a designer, not words anyone would see on screen.
+  const direction = /\b(top|bottom|left|right|first|second|third|final)\s+(panel|frame|image|half)\b|^(panel|slide|frame|shot|image|scene|caption|text)\s*\d*\s*:/i;
+  if (a.slides.some((s) => direction.test(s.headline) || direction.test(s.body ?? ""))) {
+    problems.push("a slide contains stage direction instead of on-screen text");
   }
 
   return problems;
@@ -140,7 +174,10 @@ export function reelDuration(a: ContentAsset): number {
 }
 
 export function assetLabel(kind: AssetKind): string {
-  return kind === "reel" ? "Reel" : kind === "meme" ? "Meme" : "Carousel";
+  if (kind === "reel") return "Reel";
+  if (kind === "meme") return "Meme";
+  if (kind === "clip") return "Clip";
+  return "Carousel";
 }
 
 export function angleLabel(id: AngleId): string {
@@ -165,7 +202,10 @@ export function isContentAsset(value: unknown): value is ContentAsset {
   return (
     typeof a.id === "string" &&
     typeof a.caption === "string" &&
-    (a.kind === "reel" || a.kind === "meme" || a.kind === "carousel") &&
+    (a.kind === "reel" ||
+      a.kind === "meme" ||
+      a.kind === "carousel" ||
+      a.kind === "clip") &&
     Array.isArray(a.slides) &&
     a.slides.every((s) => s && typeof s === "object" && typeof s.headline === "string")
   );

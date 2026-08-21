@@ -21,10 +21,16 @@ import { findMedia } from "@/lib/media-sources";
 import { findMany, pexelsEnabled, toQuery } from "@/lib/pexels";
 import {
   BANNED_PHRASES,
+  CAPTION_SKELETONS,
+  CLIP_VOICE_RULES,
   COMEDY_RULES,
   NATIVE_RULES,
+  SLIDE_TEMPLATES,
+  densityFor,
   patternsFor,
+  type CaptionSkeleton,
   type PostPattern,
+  type SlideTemplate,
 } from "@/lib/comedy";
 import { RECOMMEND_LIMIT, callerKey, checkRateLimit } from "@/lib/rate-limit";
 
@@ -69,7 +75,9 @@ interface RawAsset {
   attrs?: Record<string, string>;
 }
 
-const KINDS: AssetKind[] = ["reel", "meme", "carousel"];
+// "clip" leads because it is the format the user actually wants: a licensed
+// clip of an ordinary person with a first-person rant over it.
+const KINDS: AssetKind[] = ["clip", "meme", "carousel", "reel"];
 
 /**
  * Spread the batch across formats, angles and post patterns.
@@ -79,20 +87,79 @@ const KINDS: AssetKind[] = ["reel", "meme", "carousel"];
  * restricted to comic patterns so a meme never gets handed "3 things I wish
  * I knew".
  */
-function plan(
-  count: number,
-  seed: number,
-): { kind: AssetKind; angle: AngleId; pattern: PostPattern }[] {
+interface PlanItem {
+  kind: AssetKind;
+  angle: AngleId;
+  pattern?: PostPattern;
+  /** Carousels get a whole slide-by-slide skeleton. */
+  template?: SlideTemplate;
+  /** Memes and clips get a viral line shape to transplant into. */
+  skeleton?: CaptionSkeleton;
+}
+
+function plan(count: number, seed: number): PlanItem[] {
   const angles = ANGLES.map((a) => a.id);
   const comicAngles = new Set(["meme", "pov-joke", "relatable"]);
 
   return Array.from({ length: count }, (_, i) => {
     const kind = KINDS[i % KINDS.length];
     const angle = angles[(i + seed) % angles.length] as AngleId;
+
+    // A carousel follows a whole argument skeleton; one line of guidance is
+    // not enough to hold five slides together.
+    if (kind === "carousel") {
+      return {
+        kind,
+        angle,
+        template: SLIDE_TEMPLATES[(i + seed) % SLIDE_TEMPLATES.length],
+      };
+    }
+
+    // Memes and clips transplant a viral line's syntax.
+    const skeleton = CAPTION_SKELETONS[(i * 7 + seed) % CAPTION_SKELETONS.length];
+    if (kind === "clip") return { kind, angle, skeleton };
+
     const options = patternsFor(kind, comicAngles.has(angle));
     const pool = options.length ? options : patternsFor(kind);
-    return { kind, angle, pattern: pool[(i + seed) % pool.length] };
+    return { kind, angle, skeleton, pattern: pool[(i + seed) % pool.length] };
   });
+}
+
+/** The per-item brief, rendered into the prompt. */
+function describe(w: PlanItem, i: number, competitor: string, alternative: string): string {
+  const d = densityFor(w.kind);
+  const lines = [
+    `${i + 1}. kind=${w.kind}, angle=${w.angle}`,
+    `     text length: ${d.min}-${d.max} words per block. ${d.note}`,
+  ];
+
+  if (w.template) {
+    lines.push(`     TEMPLATE "${w.template.id}" — follow slide by slide, in order:`);
+    w.template.slides.forEach((s, n) => lines.push(`       slide ${n + 1}: ${s}`));
+    lines.push(`     CRITICAL: ${w.template.critical}`);
+    if (w.template.id === "competitor-contrast") {
+      lines.push(
+        competitor
+          ? `     Slide 1 names "${competitor}". State no fact about them that was not supplied in the profile.`
+          : `     No competitor was named, so contrast with the usual way instead: "${alternative || "the manual process"}". Do not invent a company name.`,
+      );
+    }
+  }
+
+  if (w.pattern) {
+    lines.push(`     pattern "${w.pattern.id}": ${w.pattern.template}`);
+    lines.push(`     why it lands: ${w.pattern.note}`);
+  }
+
+  if (w.skeleton) {
+    lines.push(
+      `     CAPTION SKELETON to transplant: ${w.skeleton.shape}`,
+      `       Keep this shape, rhythm and slang. Substitute this brand's situation into the slots.`,
+      `       ${w.skeleton.note}`,
+    );
+  }
+
+  return lines.join("\n");
 }
 
 export async function POST(req: Request) {
@@ -141,6 +208,9 @@ export async function POST(req: Request) {
     "HOW TO BE FUNNY (this is the part that usually fails)",
     ...COMEDY_RULES.map((r) => `- ${r}`),
     "",
+    "WRITING A \"clip\" (the rant-over-footage format)",
+    ...CLIP_VOICE_RULES.map((r) => `- ${r}`),
+    "",
     "HOW TO LOOK NATIVE",
     ...NATIVE_RULES.map((r) => `- ${r}`),
     "",
@@ -149,6 +219,8 @@ export async function POST(req: Request) {
     "FORMATS",
     `- reel: ${REEL_MIN}-${REEL_MAX} beats. Each beat = one on-screen text card over footage, with durationMs (1200-3000). Include audioHint.`,
     "- meme: exactly 1 slide, plus meme.topText and meme.bottomText. Either may be empty but not both. Casual, internet-native.",
+    "  For a meme the slide headline MUST be empty — every visible word lives in meme.topText/bottomText. Describe the picture in subject/environment, never in the headline.",
+    "- clip: EXACTLY 1 slide. The headline is a whole first-person rant, 25-70 words, written as short lines. No meme layer, no durations.",
     `- carousel: ${CAROUSEL_MIN}-${CAROUSEL_MAX} slides that tell ONE story in sequence; slide 1 stops the scroll, the last one asks for the action.`,
     "",
     "ANGLES",
@@ -157,13 +229,13 @@ export async function POST(req: Request) {
     "Produce exactly these, in this order. Follow each assigned PATTERN — it is",
     "the recognisable shape that makes a post read as native rather than as an ad:",
     wanted
-      .map(
-        (w, i) =>
-          `${i + 1}. kind=${w.kind}, angle=${w.angle}\n     pattern "${w.pattern.id}": ${w.pattern.template}\n     why it lands: ${w.pattern.note}`,
+      .map((w, i) =>
+        describe(w, i, brand.business.competitor ?? "", brand.business.alternative),
       )
       .join("\n"),
     "",
     "For every slide also give the shot: subject, environment, shotType, styleKeywords. Describe a real filmable/photographable moment.",
+    "NEVER write stage direction into a headline or body. No 'TOP PANEL:', no 'Slide 2:', no 'Scene:'. Those fields hold the exact words that appear on screen and nothing else.",
     "'why' is 2-3 short strategist reasons for the brand owner. Never mention prompts, models or your own process.",
     "'attrs' classifies the asset for learning: short lowercase phrases, omit anything that does not apply, never \"n/a\".",
     "",
@@ -244,7 +316,10 @@ export async function POST(req: Request) {
         "relatable") as AngleId;
 
       const rawSlides = Array.isArray(a.slides) ? a.slides : [];
-      const slides = (kind === "meme" ? rawSlides.slice(0, 1) : rawSlides).map((s, i) => {
+      // A meme and a clip are both a single frame; only reels and carousels
+      // are sequences.
+      const single = kind === "meme" || kind === "clip";
+      const slides = (single ? rawSlides.slice(0, 1) : rawSlides).map((s, i) => {
         const mediaQuery = {
           subject: String(s.subject ?? "").trim(),
           environment: String(s.environment ?? "").trim(),
@@ -263,7 +338,8 @@ export async function POST(req: Request) {
           media:
             findMedia({
               ...mediaQuery,
-              want: kind === "reel" ? "video" : "image",
+              // A clip IS footage — a still defeats the whole format.
+              want: kind === "reel" || kind === "clip" ? "video" : "image",
               context: brand.business.sector,
             }) ?? undefined,
         };
@@ -302,7 +378,9 @@ export async function POST(req: Request) {
         a.slides.map((s) => ({
           key: `${a.id}:${s.id}`,
           query: toQuery({ ...s.mediaQuery, context: brand.business.sector }),
-          want: (a.kind === "reel" ? "video" : "image") as "image" | "video",
+          want: (a.kind === "reel" || a.kind === "clip" ? "video" : "image") as
+            | "image"
+            | "video",
         })),
       );
       const found = await findMany(requests);

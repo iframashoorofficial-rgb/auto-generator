@@ -63,7 +63,7 @@ export function toQuery(meta: {
     .filter((w) => w.length > 2);
 
   // Long queries return nothing from Pexels; the first few nouns do best.
-  return words.slice(0, 5).join(" ") || meta.context || "office work";
+  return words.slice(0, 5).join(" ") || meta.context || "person walking city";
 }
 
 async function call<T>(url: string, key: string): Promise<T | null> {
