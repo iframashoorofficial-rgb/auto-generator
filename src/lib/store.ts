@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_BRAND, mergeBrand, type BrandProfile } from "./brand";
 import type { ChatTurn } from "./chat-types";
 import type { QueueItem } from "./queue";
-import { isDeckSession, newDeck, sanitiseDeck, type DeckSession } from "./deck";
+import { newDeck, normaliseDeck, sanitiseDeck, type DeckSession } from "./deck";
 
 const KEY = "format-studio.v1";
 
@@ -51,9 +51,8 @@ function read(): StoredState {
       turns: Array.isArray(parsed.turns) ? parsed.turns : [],
       queue: Array.isArray(parsed.queue) ? parsed.queue : [],
       // A brand saved before Discover existed simply starts with an empty deck.
-      deck: isDeckSession(parsed.deck)
-        ? parsed.deck
-        : newDeck(`deck-${Date.now()}`, Date.now()),
+      // Drops cards saved by an older release rather than rendering them.
+      deck: normaliseDeck(parsed.deck, `deck-${Date.now()}`, Date.now()),
     };
   } catch {
     // Corrupt or unreadable storage should never block the app.

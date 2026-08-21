@@ -95,7 +95,10 @@ export async function POST(req: Request) {
   }
 
   const brand = mergeBrand(EMPTY_BRAND, body.brand);
-  const count = Math.min(Math.max(Number(body.count) || 6, 1), 9);
+  // Four, not six: composing finished assets is slow, and a batch of six
+  // measured over 70s locally — past the 60s serverless ceiling. Four keeps
+  // the call inside the limit and the user waiting half as long.
+  const count = Math.min(Math.max(Number(body.count) || 4, 1), 6);
   const seen = Array.isArray(body.exclude) ? body.exclude.slice(-30) : [];
   const taste = signalBrief(brand.prefs.signals ?? {});
   const swipes = signalCount(brand.prefs.signals ?? {});

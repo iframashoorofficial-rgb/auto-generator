@@ -13,7 +13,7 @@
  * rather than a redesign.
  */
 
-import type { ContentAsset } from "./assets";
+import { isContentAsset, type ContentAsset } from "./assets";
 import { persistableMedia } from "./media";
 
 export interface DeckSession {
@@ -56,4 +56,22 @@ export function isDeckSession(value: unknown): value is DeckSession {
   if (!value || typeof value !== "object") return false;
   const d = value as Partial<DeckSession>;
   return typeof d.id === "string" && Array.isArray(d.ideas);
+}
+
+/**
+ * Load a stored deck safely.
+ *
+ * Cards saved by an older release have a different shape and would throw
+ * during render, so they are discarded here. The session itself survives.
+ */
+export function normaliseDeck(value: unknown, fallbackId: string, now: number): DeckSession {
+  if (!isDeckSession(value)) return newDeck(fallbackId, now);
+  const ideas = value.ideas.filter(isContentAsset);
+  return {
+    id: value.id,
+    ideas,
+    position: Number(value.position) || 0,
+    createdAt: Number(value.createdAt) || now,
+    updatedAt: Number(value.updatedAt) || now,
+  };
 }

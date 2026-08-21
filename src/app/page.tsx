@@ -145,7 +145,7 @@ export default function Studio() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             brand,
-            count: 6,
+            count: 4,
             // Everything already in the pool, decided or not, so a top-up
             // never returns something the user has already seen.
             exclude: deck.ideas.map((i) => i.caption),

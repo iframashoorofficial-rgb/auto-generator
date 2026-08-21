@@ -150,3 +150,23 @@ export function angleLabel(id: AngleId): string {
 export function slideId(i: number): string {
   return `s${i}-${Math.floor(Math.random() * 1e6)}`;
 }
+
+/**
+ * Is this a ContentAsset, and not something older?
+ *
+ * The deck persists across releases, so a browser can hold cards saved before
+ * assets existed — those had `hook`/`concept` and no `slides`, and rendering
+ * one throws on hydration. Anything that does not match the current shape is
+ * dropped on load rather than crashing the page.
+ */
+export function isContentAsset(value: unknown): value is ContentAsset {
+  if (!value || typeof value !== "object") return false;
+  const a = value as Partial<ContentAsset>;
+  return (
+    typeof a.id === "string" &&
+    typeof a.caption === "string" &&
+    (a.kind === "reel" || a.kind === "meme" || a.kind === "carousel") &&
+    Array.isArray(a.slides) &&
+    a.slides.every((s) => s && typeof s === "object" && typeof s.headline === "string")
+  );
+}

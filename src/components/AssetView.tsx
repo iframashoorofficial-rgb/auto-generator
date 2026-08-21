@@ -198,6 +198,15 @@ export function MemeView({ asset, active }: { asset: ContentAsset; active: boole
 
 export function AssetView({ asset, active }: { asset: ContentAsset; active: boolean }) {
   const render = useCallback(() => {
+    // Defence in depth. The store already drops cards it cannot render, but a
+    // blank stage is a far better failure than a thrown render.
+    if (!Array.isArray(asset.slides) || asset.slides.length === 0) {
+      return (
+        <div className="assetStage mediaFallback">
+          <p className="memeCaptionOverlay">{asset.caption || "This card could not be rendered."}</p>
+        </div>
+      );
+    }
     if (asset.kind === "reel") return <ReelView asset={asset} active={active} />;
     if (asset.kind === "meme") return <MemeView asset={asset} active={active} />;
     return <CarouselView asset={asset} active={active} />;
