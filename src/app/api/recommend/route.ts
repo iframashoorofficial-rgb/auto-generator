@@ -481,8 +481,12 @@ function describe(w: PlanItem, i: number, competitor: string, alternative: strin
         lines.push(`       beat "${beat.name}": ${beat.guidance} Max ${beat.maxWords} words.`);
       }
       lines.push(
-        `       Return these in meme.slots keyed by beat name. Leave the slide headline EMPTY.`,
+        `       Return these in meme.slots keyed by beat name, EXACTLY as spelled above. A beat returned under any other key is dropped and the card ships with no words on it.`,
+        `       Leave the slide headline EMPTY.`,
         `       The text is the SETUP only. Never describe the clip — the viewer can see it.`,
+        `       The setup is a moment from THIS brand's customer's week — the problem this business removes, before they had heard of it. Not office comedy in general.`,
+        `       Two concrete anchors from the profile: a number, a price, a time, a day, a tool they actually use. Without them it is a joke about nothing.`,
+        `       Never name the business, the product or the category in the setup. The clip reacts to the problem; the caption is where the business appears.`,
       );
     }
   }
@@ -610,6 +614,8 @@ export async function POST(req: Request) {
     "BACKGROUNDS FOR clip: the footage is a REACTION, not the product. A laughing cat, someone with their head in their hands, a person turning to the camera. Never a desk, never a laptop, never the product. Use the reaction subject given below verbatim as the slide's 'subject'.",
     "BACKGROUNDS FOR meme: two separate pictures. The slide 'subject' is the BACKDROP — a plain, calm, unpeopled scene (a wall, a sky, a road, a room) that the text and the reaction panel sit over. The reaction clip is chosen separately, so do not describe it in the subject.",
     "NEVER write stage direction into a headline or body. No 'TOP PANEL:', no 'Slide 2:', no 'Scene:'. Those fields hold the exact words that appear on screen and nothing else.",
+    "'caption' is where the business actually gets promoted, and it is not optional. The picture carries the joke; the caption is the same person a second later explaining, flatly, why they no longer have that problem. One or two short lines, lowercase, no emoji, no hashtags in it, no 'link in bio', no 'DM us'. It must name what the business does in plain words a stranger would understand — but as an aside, not a pitch. If the caption would work for any other company, it is wrong.",
+    "A caption never describes the image and never repeats the on-screen text. Those are words the viewer has already read.",
     "'why' is 2-3 short strategist reasons for the brand owner. Never mention prompts, models or your own process.",
     "'attrs' classifies the asset for learning: short lowercase phrases, omit anything that does not apply, never \"n/a\".",
     "",
@@ -624,7 +630,7 @@ export async function POST(req: Request) {
             caption: "the real caption",
             hashtags: ["#one", "#two"],
             audioHint: "reels only",
-            meme: { topText: "", bottomText: "" },
+            meme: { slots: { "<slot or beat name, exactly as briefed>": "the words on screen" } },
             slides: [
               {
                 headline: "the words on screen",

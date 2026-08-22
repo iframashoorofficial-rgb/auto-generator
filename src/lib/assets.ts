@@ -13,6 +13,7 @@
 import type { MediaRef } from "./media";
 import type { SignalAttr } from "./signals";
 import type { VisualMeta } from "./ideas";
+import { assetById } from "./meme-library";
 
 export type AssetKind = "reel" | "meme" | "carousel" | "clip";
 
@@ -165,6 +166,25 @@ export function publishProblems(a: ContentAsset): string[] {
     const filled = Object.values(m?.slots ?? {}).filter(hasText).length;
     if (!m || (!filled && !hasText(m.topText) && !hasText(m.bottomText))) {
       problems.push("meme has no overlay text");
+    }
+
+    /*
+     * The NAMED slots, not just any slot.
+     *
+     * The renderer reads each beat by name, so a card whose text came back
+     * under keys the asset has never heard of counted as "has overlay text"
+     * here and then drew nothing at all. That is the blank meme.
+     */
+    const lib = m?.templateId ? assetById(m.templateId) : undefined;
+    const required =
+      lib?.kind === "reaction"
+        ? lib.setupSlots.map((s) => s.name)
+        : lib?.kind === "template"
+          ? lib.slots.filter((s) => !s.optional).map((s) => s.name)
+          : [];
+    const missing = required.filter((name) => !hasText(m?.slots?.[name]));
+    if (required.length > 0 && missing.length > 0) {
+      problems.push(`meme is missing text for: ${missing.join(", ")}`);
     }
   }
 
