@@ -368,7 +368,23 @@ button.mini:hover { color: var(--ink); }
   box-shadow: 0 20px 44px rgba(0,0,0,0.46), 0 0 0 1px var(--line);
 }
 .ideaMedia { position: relative; flex: 1; min-height: 0; overflow: hidden; }
-.ideaMedia img {
+/* Only a bare photo dropped straight into the card. Everything the asset
+   views compose has its own class further down — this was an unqualified
+   `.ideaMedia img`, which outranked `.tmplArt` on specificity and quietly
+   turned every letterboxed meme template back into a cropped one. */
+.ideaMedia > img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  user-select: none; -webkit-user-drag: none;
+}
+
+/* The plate behind composed type: carousel slides, reel beats, clip footage,
+   and the ambient shot a reaction floats over. Cover is right here — this is a
+   backdrop, not the picture itself. It has to name <video> as well as <img>:
+   the rule above matched images only, so a video backdrop was laid out at its
+   own 1920px width inside a 340px card and showed nothing but its top-left
+   corner. */
+.ideaAsset {
+  position: absolute; inset: 0;
   width: 100%; height: 100%; object-fit: cover; display: block;
   user-select: none; -webkit-user-drag: none;
 }
@@ -504,8 +520,11 @@ button.mini:hover { color: var(--ink); }
 
 .assetStage {
   position: absolute; inset: 0; overflow: hidden;
-  /* Lets the type below scale against the card width, not the viewport. */
-  container-type: inline-size;
+  /* Lets the type below scale against the card, not the viewport. `size`
+     rather than `inline-size` because letterboxing a template needs the card's
+     height as well as its width, and the stage is pinned to its parent's box,
+     so containing its size costs nothing. */
+  container-type: size;
 }
 
 /* ---- Carousel ----------------------------------------------------------- */
@@ -589,6 +608,14 @@ button.mini:hover { color: var(--ink); }
   justify-content: center;
   gap: 14px;
 }
+/* The deck paints its own badge row over the top-left corner (`.ideaTags`,
+   top: 15px). A meme with an inset centres its text and clears that, but a
+   plain top/bottom meme pins its first line to the safe zone and collides with
+   it — the badges cut straight through the words.
+   Reserve the badge row's height. Preview only: PNG export is drawn on canvas
+   in render-canvas.ts and never reads this file, so the exported frame keeps
+   the true safe-zone position. */
+.memeText:not(.hasInset) { padding-top: 32px; }
 .memeLine {
   margin: 0; font-weight: 800; text-transform: uppercase;
   font-size: clamp(16px, 6.6cqw, 27px); line-height: 1.1; letter-spacing: -0.01em;
@@ -658,6 +685,11 @@ button.mini:hover { color: var(--ink); }
 :root {
   --safe-top: 5%;
   --safe-bottom: 24%;
+  /* The same distance in container units, for the one thing that has to
+     measure it against the CARD rather than against its own parent: a cut-out
+     dropping below the safe zone to stand on the card bottom edge. Keep the
+     two numbers equal. */
+  --safe-bottom-cq: 24cqh;
   --safe-right: 13%;
 }
 
@@ -673,16 +705,20 @@ button.mini:hover { color: var(--ink); }
 
 /* ---- Clip: a rant over unrelated footage -------------------------------- */
 
+/* Deeper than it was: with the per-line chips gone this is the only thing
+   standing between white text and a bright frame of footage. */
 .clipVeil {
   position: absolute; inset: 0;
   background: linear-gradient(180deg,
-    rgba(6,7,9,0.46) 0%, rgba(6,7,9,0.30) 45%,
-    rgba(6,7,9,0.30) 70%, rgba(6,7,9,0.72) 100%);
+    rgba(6,7,9,0.60) 0%, rgba(6,7,9,0.48) 45%,
+    rgba(6,7,9,0.50) 70%, rgba(6,7,9,0.80) 100%);
 }
 
-/* Chips, not a wall of outlined text. This is the native caption look on
-   TikTok and Reels, and it stays readable over any footage — an outline
-   alone disappears against a busy or pale background. */
+/* Outlined text over a darkened frame — no chip behind each line. The chips
+   were the native TikTok caption look, but on a meme they put a box round
+   every line, and the blur behind each one recomposited against moving
+   footage every frame, which is what made the text shimmer. The veil below
+   carries the contrast instead. */
 .clipText {
   margin: 0;
   display: flex; flex-direction: column; align-items: center;
@@ -696,14 +732,272 @@ button.mini:hover { color: var(--ink); }
 }
 .clipLine {
   display: inline-block;
-  background: rgba(8, 9, 11, 0.66);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
   color: #fff;
-  padding: 2px 7px;
-  border-radius: 5px;
   text-wrap: balance;
   max-width: 100%;
+  text-shadow:
+    -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000,
+    -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000,
+    0 0 2px rgba(0, 0, 0, 0.92), 0 2px 14px rgba(0, 0, 0, 0.8);
 }
 /* A blank line in the source becomes a beat, not an empty chip. */
 .clipGap { height: 0.55em; }
+
+/* --------------------------------------------------------------------------
+   Meme reels — landing page
+   Composited in the browser from stock clips plus text, so a punchline stays
+   a string rather than becoming a re-exported video file.
+   -------------------------------------------------------------------------- */
+
+.reelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 26px;
+  margin: 0;
+}
+
+.reel { margin: 0; }
+
+.reelFrame {
+  position: relative;
+  aspect-ratio: 9 / 16;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.reelSplit { grid-template-columns: 1fr 1fr; }
+.reelSplit .reelPane + .reelPane { border-left: 1px solid rgba(255, 255, 255, 0.22); }
+
+.reelPane { position: relative; min-width: 0; overflow: hidden; }
+
+.reelVideo { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* One wash top and bottom, so the stamp and the captions have something to
+   sit on without either of them carrying its own box. */
+.reelFrame::after {
+  content: "";
+  position: absolute; inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(6, 7, 9, 0.6) 0%, rgba(6, 7, 9, 0) 20%,
+    rgba(6, 7, 9, 0) 58%, rgba(6, 7, 9, 0.72) 100%);
+}
+
+/* Captions sit low so the split divider and the stamp stay readable. */
+.reelCaption {
+  position: absolute;
+  left: 8px; right: 8px; bottom: 14px;
+  z-index: 2;
+  font-family: "IBM Plex Sans", Helvetica, Arial, sans-serif;
+  font-size: clamp(11px, 1.5vw, 14px);
+  line-height: 1.25;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+  /* Ring rather than a drop shadow: these clips are bright in places and a
+     soft shadow disappears against them. */
+  text-shadow:
+    0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000,
+    0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.reelStamp {
+  position: absolute;
+  top: 12px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  white-space: nowrap;
+  /* Was a black pill. A meme with a chip round its own timestamp reads as a
+     UI label rather than as part of the post. */
+  text-shadow:
+    -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
+    0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.reelTag {
+  position: absolute;
+  left: 10px; right: 10px;
+  top: 52%;
+  z-index: 2;
+  text-align: center;
+  font-size: clamp(13px, 1.9vw, 17px);
+  font-weight: 600;
+  color: #fff;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 260ms ease, transform 260ms ease;
+  text-shadow: 0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000;
+}
+.reelTagIn { opacity: 1; transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .reelTag { transition: none; }
+}
+
+.reelNote {
+  margin: 12px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.reelNote strong { color: var(--ink); font-weight: 600; }
+
+/* ---- Library templates and reactions ------------------------------------
+   Two shapes. A template is fixed artwork with text measured onto it; a
+   reaction is a keyed cut-out floating over ambient footage. Both replace the
+   old "stock clip with a caption" look.
+   ------------------------------------------------------------------------ */
+
+/* Letterboxed, never cropped: templates run from 2:1 to 9:13, and cover would
+   slice the text panels straight off. The background colour comes from the
+   template so cut-out artwork on white gets white bars, not the card's dark. */
+.tmplFrame {
+  position: absolute; inset: 0; overflow: hidden;
+  display: grid; place-items: center;
+}
+/* The artwork's own box, letterboxed into the card.
+   Slots are percentages of the template, so they only land where they were
+   measured if the box they sit in *is* the template. Sizing the box to the
+   artwork here — rather than letting `object-fit: contain` letterbox inside a
+   full-card box — is what keeps the picture and its labels in agreement. */
+.tmplBox {
+  --tmpl-w: min(100cqw, 100cqh * var(--tmpl-aspect, 1));
+  position: relative;
+  width: var(--tmpl-w);
+  height: calc(var(--tmpl-w) / var(--tmpl-aspect, 1));
+}
+.tmplArt {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: contain; display: block;
+}
+
+.tmplSlot {
+  position: absolute;
+  display: flex; align-items: center;
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.12;
+  /* Size comes from the slot's box and how much was written into it, set
+     inline — see `slotScale` in AssetView. One flat size for every slot on
+     every template meant a long line in a narrow slot overran its box and was
+     cut off by the clamp below, which is the text that kept going missing. */
+  transform-origin: center center;
+}
+/* Now a backstop rather than the fitting mechanism. */
+.tmplSlotText {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  text-wrap: balance;
+}
+/* Always explicit per slot: white-on-outline vanishes on a white panel, and
+   plain dark vanishes on a photograph. */
+.tmplDark { color: #0b0c0e; }
+.tmplOutlined {
+  color: #fff; text-transform: uppercase;
+  text-shadow:
+    -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+    0 3px 14px rgba(0,0,0,0.5);
+}
+
+/* The reaction layer. Nothing here is flow-laid-out any more: the text sits at
+   the top and the cut-out is placed against an edge, because each clip wants a
+   different spot and a centred column gave every card the same silhouette. */
+.reactStack {
+  position: absolute;
+  top: var(--safe-top); left: 5%;
+  right: var(--safe-right); bottom: var(--safe-bottom);
+  pointer-events: none;
+}
+.reactText {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; flex-direction: column; gap: 7px; align-items: center;
+}
+.reactLine {
+  margin: 0; text-align: center; color: #fff; font-weight: 700;
+  font-size: clamp(13px, 5.2cqw, 24px); line-height: 1.15; text-wrap: balance;
+  text-shadow:
+    -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+    0 3px 14px rgba(0,0,0,0.5);
+}
+
+/* No border and no box: the clip is keyed to transparency so the subject sits
+   on the backdrop. A frame around it would read as a video thumbnail.
+   Positioned, because the keyed source is stacked underneath the canvas. */
+.reactCut {
+  position: absolute;
+  /* Lift is measured off the bottom of the safe zone, not the card: below that
+     line TikTok and Instagram paint their own caption and action rail over
+     whatever is there. 0 sits flush against it. */
+  bottom: calc(var(--react-lift, 0) * 1cqh);
+  /* The clip is shown whole, so the box takes the clip own shape.
+     --react-h caps the HEIGHT as a share of the card; the width follows from
+     the aspect ratio and is clamped to the text column. Because the width is
+     what gets clamped and aspect-ratio derives the height from it, a wide clip
+     gets shorter rather than squashed. */
+  width: min(100%, calc(var(--react-h, 40) * 1cqh * var(--react-frame, 1)));
+  aspect-ratio: var(--react-frame, 1);
+}
+/* Auto margins rather than a translate, so .reactBoxed keeps its tilt. */
+.reactCut[data-x="center"] { left: 0; right: 0; margin-inline: auto; }
+.reactCut[data-x="left"] { left: 0; }
+.reactCut[data-x="right"] { right: 0; }
+/* Out of the safe zone entirely, onto the card own bottom edge. */
+.reactCut[data-full="true"] {
+  bottom: calc(var(--react-lift, 0) * 1cqh - var(--safe-bottom-cq));
+}
+/* Cover, for the two paths that are a real <video> rather than the canvas:
+   an unkeyed clip and the give-up fallback. The canvas does its own cropping
+   and is already the right shape. */
+.reactCut .reactMedia { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* The frame supply for a keyed reaction — see ChromaVideo.
+   Transparent, never `display: none`: Chrome stops decoding a video it treats
+   as hidden, which leaves the canvas blank and the reaction missing from the
+   card entirely. It has to occupy a real box and be painted; being invisible
+   is enough. */
+.chromaSource {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Only for a clip that was never keyed. */
+.reactBoxed {
+  border-radius: 14px; overflow: hidden;
+  border: 3px solid rgba(255,255,255,0.92);
+  box-shadow: 0 16px 38px rgba(0,0,0,0.55);
+  transform: rotate(-2.2deg);
+}
+
+/* ---- Rendering bench (/preview) -----------------------------------------
+   Not part of the product. The deck sizes a card from the swipe stage, so a
+   bench that wants ten of them side by side has to supply that size itself.
+   ------------------------------------------------------------------------ */
+
+.benchGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 20px;
+  margin: 14px 0 0;
+}
+.bench { margin: 0; }
+.bench .ideaCard {
+  height: auto;
+  aspect-ratio: 9 / 16;
+}
+.bench figcaption {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); margin-top: 8px;
+}

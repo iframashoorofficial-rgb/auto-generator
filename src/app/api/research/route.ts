@@ -3,6 +3,8 @@ import { chat, parseJsonLoose, MissingKeyError, UpstreamError } from "@/lib/open
 import { EMPTY_PROFILE, type BusinessProfile } from "@/lib/profile";
 import type { VisualDNA } from "@/lib/brand";
 
+import { extractText } from "@/lib/html-text";
+
 export const runtime = "nodejs";
 
 /**
@@ -54,31 +56,6 @@ function normaliseUrl(raw: string): string | null {
   } catch {
     return null;
   }
-}
-
-/** Crude but dependency-free readable-text extraction. */
-function extractText(html: string): { text: string; title: string } {
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.trim() ?? "";
-
-  const meta: string[] = [];
-  const metaRe = /<meta[^>]+(?:name|property)=["'](description|og:description|og:site_name|og:title)["'][^>]+content=["']([^"']+)["']/gi;
-  let m: RegExpExecArray | null;
-  while ((m = metaRe.exec(html))) meta.push(`${m[1]}: ${m[2]}`);
-
-  const body = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return { text: [title, ...meta, body].join("\n").slice(0, MAX_CHARS), title };
 }
 
 export async function POST(req: Request) {

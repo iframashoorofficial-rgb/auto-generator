@@ -50,9 +50,22 @@ export interface AssetSlide {
 }
 
 export interface MemeLayer {
-  /** Classic top/bottom meme text. Either may be empty, not both. */
-  topText: string;
-  bottomText: string;
+  /**
+   * The approved library asset this meme is built on — a template's artwork or
+   * a reaction clip. Present on everything the new pipeline makes.
+   */
+  templateId?: string;
+  /** Slot or beat name -> the words. Positions come from the library. */
+  slots?: Record<string, string>;
+  /**
+   * Classic top/bottom meme text.
+   *
+   * Kept so cards made before the library still render. Additive on purpose:
+   * changing the shape outright would have meant deleting everyone's existing
+   * memes to avoid render errors.
+   */
+  topText?: string;
+  bottomText?: string;
   /**
    * The funny bit, inset over the background rather than filling the frame.
    * A full-bleed reaction leaves nowhere for the text and reads as a stock
@@ -60,8 +73,6 @@ export interface MemeLayer {
    * a meme.
    */
   reaction?: MediaRef;
-  /** What to search for that inset. Resolved server-side. */
-  reactionQuery?: string;
 }
 
 export interface ContentAsset {
@@ -151,7 +162,8 @@ export function publishProblems(a: ContentAsset): string[] {
 
   if (a.kind === "meme") {
     const m = a.meme;
-    if (!m || (!hasText(m.topText) && !hasText(m.bottomText))) {
+    const filled = Object.values(m?.slots ?? {}).filter(hasText).length;
+    if (!m || (!filled && !hasText(m.topText) && !hasText(m.bottomText))) {
       problems.push("meme has no overlay text");
     }
   }

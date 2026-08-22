@@ -19,6 +19,12 @@ import { SIGNAL_ATTRS, type SignalMap } from "./signals";
  * A batch is capped at four because composing finished assets is slow and the
  * route has a 60s ceiling, so the deck fills over two or three background
  * top-ups while the user is already swiping the first few.
+ *
+ * Measured 22 Aug 2026, do not raise this casually: a single /api/recommend
+ * call took 3s, 20s and 41s on three consecutive top-ups. Against the route's
+ * 60s ceiling that is little headroom, and every extra card this threshold
+ * asks for is another paid call rolling the same dice. Briefly set to 15,
+ * which meant four such calls on every visit; reverted.
  */
 export const LOW_WATER = 9;
 /** Stop hoarding: no point holding more than the user will see in a sitting. */

@@ -11,6 +11,15 @@ const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 export const DEFAULT_MODEL =
   process.env.OPENROUTER_MODEL || "anthropic/claude-sonnet-4.5";
 
+/**
+ * The cheap tier, for work that is high-volume but not hard: distilling scraped
+ * trend pages, and drafting many short concepts before one of them is written
+ * up properly. Keeping these off the main model is what makes an
+ * over-generate-then-filter pipeline affordable.
+ */
+export const FAST_MODEL =
+  process.env.OPENROUTER_FAST_MODEL || "anthropic/claude-haiku-4.5";
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -34,13 +43,13 @@ export class UpstreamError extends Error {
 
 export async function chat(
   messages: ChatMessage[],
-  opts: { json?: boolean; maxTokens?: number; temperature?: number } = {},
+  opts: { json?: boolean; maxTokens?: number; temperature?: number; model?: string } = {},
 ): Promise<string> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new MissingKeyError();
 
   const body: Record<string, unknown> = {
-    model: DEFAULT_MODEL,
+    model: opts.model || DEFAULT_MODEL,
     messages,
     max_tokens: opts.maxTokens ?? 1400,
     temperature: opts.temperature ?? 0.7,

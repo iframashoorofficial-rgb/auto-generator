@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { reelDuration, type ContentAsset } from "@/lib/assets";
 import { findMedia } from "@/lib/media-sources";
 import { CardMedia } from "./CardMedia";
+import { assetById, type TemplateSlot } from "@/lib/meme-library";
+import { ChromaVideo } from "./ChromaVideo";
 import type { MediaRef } from "@/lib/media";
 
 /**
@@ -172,8 +174,143 @@ export function ReelView({ asset, active }: { asset: ContentAsset; active: boole
 
 /* ---- Meme --------------------------------------------------------------- */
 
+/**
+ * Average glyph advance at weight 700, as a fraction of the font size.
+ *
+ * Two figures because `.tmplOutlined` uppercases what it is given, and capitals
+ * are appreciably wider — measuring an outlined slot in lowercase advances is
+ * how it ends up one line taller than the box it was given.
+ */
+const GLYPH_W = { mixed: 0.53, upper: 0.63 };
+/** Matches `line-height` on `.tmplSlot`. */
+const SLOT_LEADING = 1.12;
+/** Lines break between words, so one never quite fills the width it is given. */
+const WRAP_SLACK = 0.88;
+
+/**
+ * Font size for one template slot, as a fraction of the artwork's width.
+ *
+ * The artwork's width is the only unit a slot can be sized in: everything about
+ * a slot is a percentage of the template, and the template is letterboxed, so
+ * neither the card nor the viewport tells you how big the picture actually is.
+ *
+ * Two bounds, smaller wins — the line has to fit the slot's width once broken
+ * over `maxLines`, and `maxLines` has to fit the slot's height. A single flat
+ * size for every slot on every template is what put long lines outside their
+ * box, where the line clamp cut them off and the text appeared to vanish.
+ *
+ * The floor is deliberately low. Nothing enforces a slot's `maxChars` — it is
+ * guidance in the prompt — so when a slot is overwritten the choice is between
+ * small and missing, and small is the better failure.
+ */
+function slotScale(slot: TemplateSlot, text: string, aspect: number): number {
+  const chars = Math.max(text.trim().length, 1);
+  const glyph = GLYPH_W[slot.style === "outlined" ? "upper" : "mixed"];
+  const byWidth = ((slot.width / 100) * WRAP_SLACK * slot.maxLines) / (glyph * chars);
+  // The slot's height is a share of the artwork's height — its width / aspect.
+  const byHeight = slot.height / 100 / aspect / (slot.maxLines * SLOT_LEADING);
+  return Math.min(0.075, Math.max(0.019, Math.min(byWidth, byHeight)));
+}
+
 export function MemeView({ asset, active }: { asset: ContentAsset; active: boolean }) {
   const m = asset.meme;
+  const lib = m?.templateId ? assetById(m.templateId) : undefined;
+
+  // A template positions its own text: the artwork is fixed and the slots were
+  // measured against it, so each one is placed absolutely rather than stacked.
+  if (lib?.kind === "template" && m?.slots) {
+    return (
+      <div className="assetStage">
+        {/* The frame is the card; the box inside it is the picture, letterboxed
+            to the template's own shape. The artwork is never cropped — a
+            template is the joke, so losing half of it to a 9:16 card loses the
+            joke — and because the slots are positioned inside that same box,
+            their percentages land exactly where they were measured. */}
+        <div className="tmplFrame" style={{ background: lib.background }}>
+          <div
+            className="tmplBox"
+            style={{ "--tmpl-aspect": String(lib.aspect) } as CSSProperties}
+          >
+            <CardMedia media={mediaFor(asset, 0)} className="tmplArt" active={active} />
+            {lib.slots.map((slot) => {
+              const text = m.slots?.[slot.name];
+              if (!text) return null;
+              return (
+                <span
+                  key={slot.name}
+                  className={`tmplSlot ${slot.style === "outlined" ? "tmplOutlined" : "tmplDark"}`}
+                  style={{
+                    left: `${slot.x}%`,
+                    top: `${slot.y}%`,
+                    width: `${slot.width}%`,
+                    height: `${slot.height}%`,
+                    textAlign: slot.align,
+                    transform: slot.rotate ? `rotate(${slot.rotate}deg)` : undefined,
+                    fontSize: `calc(var(--tmpl-w) * ${slotScale(slot, text, lib.aspect).toFixed(4)})`,
+                  }}
+                >
+                  <span
+                    className="tmplSlotText"
+                    style={{ WebkitLineClamp: slot.maxLines }}
+                  >
+                    {text}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // A reaction floats over ambient footage with the setup text above it. The
+  // clip is keyed to transparency, so it gets no border — a box would make it
+  // read as a video thumbnail rather than a meme.
+  if (lib?.kind === "reaction" && m?.slots) {
+    const beats = lib.setupSlots.map((b) => m.slots?.[b.name]).filter(Boolean) as string[];
+    return (
+      <div className="assetStage">
+        <CardMedia media={mediaFor(asset, 0)} className="ideaAsset" active={active} />
+        <div className="memeVeil" />
+        <div className="reactStack">
+          <div className="reactText">
+            {beats.map((line, i) => (
+              <p className="reactLine" key={i}>
+                {line}
+              </p>
+            ))}
+          </div>
+          {m.reaction && (
+            <div
+              className={`reactCut${lib.transparent ? "" : " reactBoxed"}`}
+              data-x={lib.place.x}
+              data-full={lib.place.full ? "true" : undefined}
+              style={
+                {
+                  "--react-h": String(Math.min(lib.size, lib.maxSize)),
+                  "--react-frame": String(lib.frame),
+                  "--react-lift": String(lib.place.lift),
+                } as CSSProperties
+              }
+            >
+              {/* A green-screen source keyed per frame. Without this the card
+                  shows a green rectangle, which is what the green screen was
+                  chosen to avoid. */}
+              {lib.transparent ? (
+                <ChromaVideo media={m.reaction} className="reactMedia" active={active} />
+              ) : (
+                <CardMedia media={m.reaction} className="reactMedia" active={active} />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Legacy two-slot memes, made before the library existed. Kept so nobody's
+  // saved cards break.
   return (
     <div className="assetStage">
       <CardMedia media={mediaFor(asset, 0)} className="ideaAsset" active={active} />

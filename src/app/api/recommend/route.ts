@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chat, parseJsonLoose, MissingKeyError, UpstreamError } from "@/lib/openrouter";
+import { chat, parseJsonLoose, MissingKeyError, UpstreamError, FAST_MODEL } from "@/lib/openrouter";
 import { profileSummary } from "@/lib/profile";
 import { EMPTY_BRAND, brandSummary, mergeBrand, type BrandProfile } from "@/lib/brand";
 import { dnaBlock } from "@/lib/visual-prompt";
@@ -18,6 +18,7 @@ import {
   type ContentAsset,
 } from "@/lib/assets";
 import { findMedia } from "@/lib/media-sources";
+import { imageRef, videoRef } from "@/lib/media";
 import { findMany, pexelsEnabled, toQuery } from "@/lib/pexels";
 import {
   BANNED_PHRASES,
@@ -30,18 +31,38 @@ import {
   SLIDE_TEMPLATES,
   densityFor,
   patternsFor,
-  reactionFor,
-  TRENDING_CAPTURED,
-  trendingSlot,
   type CaptionSkeleton,
-  type TrendingFormat,
   type PostPattern,
   type SlideTemplate,
 } from "@/lib/comedy";
+import {
+  BACKGROUNDS,
+  COPY_FORMATS,
+  activeAssets,
+  copyFormatsForMechanics,
+  naturePlates,
+  reactionPlates,
+  type BackgroundClip,
+  type CopyFormat,
+  type ReactionPlate,
+  type LibraryAsset,
+} from "@/lib/meme-library";
+import { getTrends, type Trend } from "@/lib/trends";
+import { screenConcepts, type Concept } from "@/lib/screen";
 import { RECOMMEND_LIMIT, callerKey, checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+/**
+ * How long the concept stage may take before the batch gives up on it.
+ *
+ * Measured: the write-up call alone is 45-50s for four finished assets, which
+ * is most of the 60s ceiling on its own — the route already warned a batch of
+ * six ran over 70s. So the shortlist gets whatever is left and no more.
+ * Skipping it costs some quality; overrunning costs the entire request.
+ */
+const CONCEPT_TIMEOUT_MS = 14_000;
 
 /**
  * The composer behind the swipe deck.
@@ -56,6 +77,8 @@ interface RecommendRequest {
   brand: BrandProfile;
   count?: number;
   exclude?: string[];
+  /** Background ids used recently, so the pool does not visibly repeat. */
+  recentBackgrounds?: string[];
   /**
    * Recently liked cards. Weighted signals shift taste slowly across many
    * swipes; these make a single like land immediately, which is what a person
@@ -81,15 +104,65 @@ interface RawAsset {
   caption?: string;
   hashtags?: string[];
   slides?: RawSlide[];
-  meme?: { topText?: string; bottomText?: string };
+  meme?: { slots?: Record<string, string>; topText?: string; bottomText?: string };
   audioHint?: string;
   why?: string[];
   attrs?: Record<string, string>;
 }
 
-// "clip" leads because it is the format the user actually wants: a licensed
-// clip of an ordinary person with a first-person rant over it.
-const KINDS: AssetKind[] = ["clip", "meme", "carousel", "reel"];
+/** Every kind a card may end up as. Used to validate, not to compose. */
+const KINDS: AssetKind[] = ["meme", "clip", "carousel", "reel"];
+
+/** One slot in a batch. */
+interface SlotSpec {
+  kind: AssetKind;
+  /**
+   * Meme slots only: which half of the library to draw from.
+   *
+   * The library holds still templates and reaction clips in one pool, and a
+   * meme slot left to pick freely takes either. With five of each, a batch of
+   * two meme slots regularly came back with two stills and no video in it at
+   * all — which is why the reaction clips looked like they were never being
+   * made. Naming the half is what makes "two video memes" mean two video memes.
+   */
+  asset?: "reaction" | "template";
+}
+
+/**
+ * What a batch is made of, in the order it is shown.
+ *
+ * A product decision, not an accident of cycling an array: two reaction clips
+ * so the batch has motion in it, one carousel to carry something useful at
+ * length, and a fourth slot that is neither — rotated, so a week of batches is
+ * not the same four cards with different words.
+ *
+ * The order matters as much as the mix. The carousel sits BETWEEN the two
+ * reactions deliberately: run the two together and the day opens with two cards
+ * of the same shape side by side, which reads as one idea shown twice. Split
+ * this way, no two neighbours share a style in any of the three rotations.
+ */
+const BATCH: SlotSpec[] = [
+  { kind: "meme", asset: "reaction" },
+  { kind: "carousel" },
+  { kind: "meme", asset: "reaction" },
+  // Placeholder. The real value comes from ROTATION, below.
+  { kind: "clip" },
+];
+
+/** The fourth slot. Never a reaction, never a carousel. */
+const ROTATION: SlotSpec[] = [
+  { kind: "clip" },
+  { kind: "reel" },
+  { kind: "meme", asset: "template" },
+];
+
+/** The fourth slot's spec for this batch, rotated by cycle rather than by card. */
+function specFor(i: number, seed: number): SlotSpec {
+  const at = i % BATCH.length;
+  if (at !== BATCH.length - 1) return BATCH[at];
+  const cycle = Math.floor(i / BATCH.length);
+  return ROTATION[(cycle + seed) % ROTATION.length];
+}
 
 /**
  * Spread the batch across formats, angles and post patterns.
@@ -105,54 +178,247 @@ interface PlanItem {
   pattern?: PostPattern;
   /** Carousels get a whole slide-by-slide skeleton. */
   template?: SlideTemplate;
-  /** Memes and clips get a viral line shape to transplant into. */
+  /** Clips transplant a viral line's syntax. */
   skeleton?: CaptionSkeleton;
-  /** Memes and clips get reaction footage, never a product shot. */
-  reaction?: string;
-  /** At most one card per batch rides a format that is current right now. */
-  trending?: TrendingFormat;
+  /** The researched trend this card rides, if one matched. */
+  trend?: Trend;
+  /**
+   * The approved template or reaction clip a meme is built on.
+   *
+   * Required for a meme. If nothing in the library carries the trend's
+   * mechanic the slot becomes a carousel instead — it never falls through to
+   * stock footage, which is exactly how the old pipeline produced a random
+   * clip of someone laughing for every joke.
+   */
+  asset?: LibraryAsset;
+  /** Text-driven formats: which shape the copy takes, and what plays behind it. */
+  copy?: CopyFormat;
+  background?: BackgroundClip;
+  /** Reactions only: the still the cut-out stands in front of. */
+  plate?: ReactionPlate;
 }
 
-function plan(count: number, seed: number): PlanItem[] {
+/**
+ * Pick a background, avoiding anything used in this batch or recently.
+ *
+ * Only one card per batch of four is a clip, so a pool of four gives roughly
+ * four batches before a repeat.
+ */
+function pickBackground(
+  used: Set<string>,
+  recent: string[],
+  seed: number,
+  /**
+   * Which pool to draw from.
+   *
+   * Empty landscape, in practice. The peopled clips (bg-01 to bg-04) stay in
+   * the library but are no longer selected: a block of copy over footage of
+   * somebody else's kitchen competes with itself, and the text lost. They are
+   * kept rather than deleted so a card made when they were live still renders.
+   */
+  plates: BackgroundClip[] = BACKGROUNDS,
+): BackgroundClip {
+  const free = plates.filter((b) => !used.has(b.id) && !recent.includes(b.id));
+  const pool = free.length ? free : plates.filter((b) => !used.has(b.id));
+  const from = pool.length ? pool : plates;
+  const pick = from[seed % from.length];
+  used.add(pick.id);
+  return pick;
+}
+
+function plan(
+  count: number,
+  seed: number,
+  trends: Trend[],
+  recentBackgrounds: string[],
+): PlanItem[] {
   const angles = ANGLES.map((a) => a.id);
   const comicAngles = new Set(["meme", "pov-joke", "relatable"]);
+  const usedBackgrounds = new Set<string>();
+  /**
+   * One cursor per half of the library, so all fifteen surface rather than a
+   * lucky few. Separate, because a shared cursor advanced by a reaction slot
+   * would skip templates it never actually offered.
+   */
+  const cursors: Record<string, number> = { reaction: 0, template: 0, any: 0 };
+  /** Rotates the stills so two reactions in one batch never share a backdrop. */
+  let plateCursor = 0;
 
   return Array.from({ length: count }, (_, i) => {
-    const kind = KINDS[i % KINDS.length];
+    const spec = specFor(i, seed);
+    let kind = spec.kind;
     const angle = angles[(i + seed) % angles.length] as AngleId;
+    // Every slot gets a trend if one is available, not just the second — three
+    // of four cards previously rode nothing at all.
+    const trend = trends.length ? trends[(i + seed) % trends.length] : undefined;
 
-    const trending = trendingSlot(i, kind, seed);
+    if (kind === "clip") {
+      // Prefer a copy format that serves this trend's mechanic; otherwise the
+      // plain value-copy format, which pairs with topics rather than jokes.
+      const matched = trend ? copyFormatsForMechanics(trend.mechanics) : [];
+      const copy = matched.length
+        ? matched[(i + seed) % matched.length]
+        : COPY_FORMATS[0];
+      return {
+        kind,
+        angle,
+        copy,
+        trend: matched.length ? trend : undefined,
+        background: pickBackground(usedBackgrounds, recentBackgrounds, i + seed, naturePlates()),
+      };
+    }
 
-    // A carousel follows a whole argument skeleton; one line of guidance is
-    // not enough to hold five slides together.
+    if (kind === "meme") {
+      /**
+       * Asset first, trend second — deliberately the inverse of the original.
+       *
+       * Picking a trend and then hunting for an asset that carried its mechanic
+       * meant the library was only used when the two happened to line up, and
+       * the slot silently became a carousel when they did not. Cycling the
+       * library instead guarantees every approved template gets its turn, and a
+       * trend is layered on only when one genuinely fits. An asset without a
+       * matching trend still has its own `shape` to work from, which is the
+       * whole reason that field exists.
+       */
+      const half = spec.asset ?? "any";
+      const pool = activeAssets().filter((a) => (spec.asset ? a.kind === spec.asset : true));
+      if (pool.length) {
+        const asset = pool[(cursors[half]++ + seed) % pool.length];
+        const fitted = trends.find((t) =>
+          t.mechanics.some((m) => asset.serves.includes(m)),
+        );
+        return {
+          kind,
+          angle,
+          trend: fitted,
+          asset,
+          // A reaction floats over ambient footage; a template is its own frame.
+          plate:
+            asset.kind === "reaction"
+              ? reactionPlates()[(plateCursor++ + seed) % reactionPlates().length]
+              : undefined,
+        };
+      }
+      // Only reachable if the library is empty, which means something is wrong
+      // with the install rather than with this batch.
+      kind = "carousel";
+    }
+
     if (kind === "carousel") {
       return {
         kind,
         angle,
-        trending,
-        template: trending
-          ? undefined
-          : SLIDE_TEMPLATES[(i + seed) % SLIDE_TEMPLATES.length],
+        trend,
+        template: SLIDE_TEMPLATES[(i + seed) % SLIDE_TEMPLATES.length],
       };
     }
 
-    // Memes and clips transplant a viral line's syntax.
     const skeleton = CAPTION_SKELETONS[(i * 7 + seed) % CAPTION_SKELETONS.length];
-    const reaction = reactionFor(i, seed);
-    if (kind === "clip") return { kind, angle, skeleton, reaction, trending };
-
     const options = patternsFor(kind, comicAngles.has(angle));
     const pool = options.length ? options : patternsFor(kind);
     return {
       kind,
       angle,
+      trend,
       skeleton,
-      reaction,
-      trending,
-      // A trending format replaces the evergreen pattern rather than fighting it.
-      pattern: trending ? undefined : pool[(i + seed) % pool.length],
+      pattern: pool[(i + seed) % pool.length],
     };
   });
+}
+
+/**
+ * Stage one: draft many cheap concepts, so there is something to choose from.
+ *
+ * The old pipeline asked for exactly four finished assets and kept whatever
+ * came back — with nothing to select between, quality had no way to rise. This
+ * asks a cheap model for three rough angles per slot, which the free
+ * deterministic screen then thins before the expensive write-up runs.
+ *
+ * Returns an empty list on any failure. The caller treats that as "no
+ * shortlist" and writes the batch the old way rather than failing the request.
+ */
+async function draftConcepts(
+  wanted: PlanItem[],
+  brandLine: string,
+  seen: string[],
+): Promise<Concept[]> {
+  const briefs = wanted
+    .map((w, i) => {
+      // Field NAMES alone were not enough: the drafter had no idea what
+      // "reject" or "trigger" were supposed to contain, so it filled them with
+      // whatever fitted the words. Ship the guidance with them.
+      const slots = w.asset
+        ? w.asset.kind === "template"
+          ? w.asset.slots
+              .filter((x) => !x.optional)
+              .map((x) => `${x.name} (max ${x.maxWords}w) — ${x.guidance}`)
+          : w.asset.setupSlots.map((x) => `${x.name} (max ${x.maxWords}w) — ${x.guidance}`)
+        : ["line — the whole post"];
+      const shape =
+        w.asset?.kind === "template"
+          ? w.asset.shape
+          : w.asset?.kind === "reaction"
+            ? `${w.asset.description} It pays off: ${w.asset.reactionTo}`
+            : (w.copy?.shape ?? w.pattern?.template ?? "a short post");
+      return [
+        `${i + 1}. id=${w.asset?.id ?? w.copy?.id ?? w.kind} kind=${w.kind}`,
+        `   shape: ${shape}`,
+        w.trend ? `   trend: ${w.trend.shape}` : "",
+        "   fields:",
+        ...slots.map((x) => `     - ${x}`),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+
+  const prompt = `BRAND
+${brandLine}
+
+Every concept must be about THIS business — its audience, its offering, the
+problem it solves. A concept that would work for any company is a failure.
+
+Write TWO distinct concepts for each item below. Fill each field with what that
+field asks for; the field guidance is not a suggestion. Vary the angle sharply — three
+rewordings of one idea is a failure.
+
+Every concept must contain at least one concrete anchor: a number, a price, a
+time, a day, or a named thing. "admin is annoying" is filler; "a spreadsheet
+named final_FINAL_v3" is a joke.
+
+${briefs}
+
+${seen.length ? `Already used, do not repeat:\n${seen.slice(-12).map((x) => `- ${x}`).join("\n")}
+` : ""}
+Return {"concepts":[{"assetId":"...","text":{"<field>":"..."},"why":"one clause"}]} and nothing else.`;
+
+  // Hard-capped, and deliberately give-up-able. Measured end to end at 50-66s
+  // against a 60s ceiling, and the write-up is the part that cannot be skipped
+  // — so if the shortlist is slow, the batch proceeds without one rather than
+  // taking the whole request over the limit.
+  const budget = new Promise<null>((resolve) => setTimeout(() => resolve(null), CONCEPT_TIMEOUT_MS));
+
+  try {
+    const raw = await Promise.race([
+      chat(
+        [
+          {
+            role: "system",
+            content:
+              "You draft rough meme concepts. Short, specific, internet-native. Never corporate. Output JSON only.",
+          },
+          { role: "user", content: prompt },
+        ],
+        { json: true, model: FAST_MODEL, temperature: 1, maxTokens: 1500 },
+      ),
+      budget,
+    ]);
+    if (!raw) return [];
+    const parsed = parseJsonLoose<{ concepts?: Concept[] }>(raw);
+    return Array.isArray(parsed?.concepts) ? parsed.concepts : [];
+  } catch {
+    return [];
+  }
 }
 
 /** The per-item brief, rendered into the prompt. */
@@ -176,25 +442,64 @@ function describe(w: PlanItem, i: number, competitor: string, alternative: strin
     }
   }
 
-  if (w.trending) {
+  if (w.trend) {
     lines.push(
-      `     TRENDING FORMAT "${w.trending.id}" (current as of ${TRENDING_CAPTURED}) — build this one on the trend:`,
-      `       ${w.trending.shape}`,
-      `       why it is working: ${w.trending.note}`,
+      `     TREND "${w.trend.id}" — researched, current. Build this one on it:`,
+      `       ${w.trend.shape}`,
+      `       why it is working: ${w.trend.note}`,
+      `       Take the STRUCTURE only. Never reproduce anyone's actual post, wording or subject.`,
     );
-    if (w.trending.audio) lines.push(`       audioHint: ${w.trending.audio}`);
+  }
+
+  if (w.asset) {
+    if (w.asset.kind === "template") {
+      lines.push(`     TEMPLATE "${w.asset.id}" — the artwork is fixed; fill its slots:`);
+      lines.push(`       ${w.asset.shape}`);
+      if (w.asset.bakedText) {
+        lines.push(
+          `       ALREADY DRAWN ON THE IMAGE: "${w.asset.bakedText}". Do not repeat or contradict it.`,
+        );
+      }
+      for (const slot of w.asset.slots) {
+        lines.push(
+          `       slot "${slot.name}"${slot.optional ? " (optional)" : ""}: ${slot.guidance} Max ${slot.maxWords} words.`,
+        );
+      }
+      lines.push(
+        `       Return these in meme.slots keyed by slot name. Leave the slide headline EMPTY.`,
+      );
+    } else {
+      lines.push(`     REACTION CLIP "${w.asset.id}" — the punchline is the footage:`);
+      lines.push(`       what it shows: ${w.asset.description}`);
+      lines.push(`       it pays off: ${w.asset.reactionTo}`);
+      if (w.asset.spokenLine) {
+        lines.push(
+          `       the clip already says "${w.asset.spokenLine}" — it plays muted, so do not rely on it being heard, and do not repeat it.`,
+        );
+      }
+      for (const beat of w.asset.setupSlots) {
+        lines.push(`       beat "${beat.name}": ${beat.guidance} Max ${beat.maxWords} words.`);
+      }
+      lines.push(
+        `       Return these in meme.slots keyed by beat name. Leave the slide headline EMPTY.`,
+        `       The text is the SETUP only. Never describe the clip — the viewer can see it.`,
+      );
+    }
+  }
+
+  if (w.copy) {
+    lines.push(
+      `     COPY FORMAT "${w.copy.id}": ${w.copy.shape}`,
+      `       ${w.copy.minLines}-${w.copy.maxLines} short lines, ${w.copy.minWords}-${w.copy.maxWords} words total.`,
+      ...w.copy.rules.map((r) => `       - ${r}`),
+      `       Put the whole thing in the slide headline, one line per line, blank lines between sections.`,
+      `       The footage behind it is unrelated ambient video. Never reference it.`,
+    );
   }
 
   if (w.pattern) {
     lines.push(`     pattern "${w.pattern.id}": ${w.pattern.template}`);
     lines.push(`     why it lands: ${w.pattern.note}`);
-  }
-
-  if (w.reaction) {
-    lines.push(
-      `     BACKGROUND (use as the slide's "subject", word for word): ${w.reaction}`,
-      `       The footage carries the emotion, the text carries the message. Do not describe the product here.`,
-    );
   }
 
   if (w.skeleton) {
@@ -231,16 +536,30 @@ export async function POST(req: Request) {
   }
 
   const brand = mergeBrand(EMPTY_BRAND, body.brand);
-  // Four, not six: composing finished assets is slow, and a batch of six
-  // measured over 70s locally — past the 60s serverless ceiling. Four keeps
-  // the call inside the limit and the user waiting half as long.
+  /**
+   * Three, not four.
+   *
+   * Measured 22 Aug 2026 with the two-stage pipeline: writing four finished
+   * assets alone takes 45-50s of the 60s ceiling, which left no room for the
+   * concept stage — it timed out on every request and the screening never ran.
+   * Three assets complete in ~47s *including* concepts and screening.
+   *
+   * Costs nothing in practice: the deck tops up in the background against
+   * LOW_WATER, so a smaller batch just means one more quiet top-up.
+   */
   const count = Math.min(Math.max(Number(body.count) || 4, 1), 6);
   const seen = Array.isArray(body.exclude) ? body.exclude.slice(-30) : [];
   const seeds = Array.isArray(body.seeds) ? body.seeds.slice(-3) : [];
   const taste = signalBrief(brand.prefs.signals ?? {});
   const swipes = signalCount(brand.prefs.signals ?? {});
+  const recentBackgrounds = Array.isArray(body.recentBackgrounds)
+    ? body.recentBackgrounds.slice(-6)
+    : [];
+  // Researched, cached for six hours, and empty is a valid answer — a slot with
+  // no trend simply falls back to an evergreen pattern.
+  const trends = await getTrends();
   // Rotate the pattern assignment per batch so a top-up is not a repeat.
-  const wanted = plan(count, Math.floor(Date.now() / 60000));
+  const wanted = plan(count, Math.floor(Date.now() / 60000), trends, recentBackgrounds);
 
   const system = [
     "You are a social-media creative producing FINISHED, POSTABLE assets for one brand.",
@@ -271,8 +590,8 @@ export async function POST(req: Request) {
     "",
     "FORMATS",
     `- reel: ${REEL_MIN}-${REEL_MAX} beats. Each beat = one on-screen text card over footage, with durationMs (1200-3000). Include audioHint.`,
-    "- meme: exactly 1 slide, plus meme.topText and meme.bottomText. Either may be empty but not both. Casual, internet-native.",
-    "  For a meme the slide headline MUST be empty — every visible word lives in meme.topText/bottomText. Describe the picture in subject/environment, never in the headline.",
+    "- meme: exactly 1 slide. Every visible word goes in meme.slots, keyed by the slot or beat names given for that item. The slide headline MUST be empty.",
+    "  The artwork is already chosen and fixed. Do NOT describe a picture — subject/environment are ignored for memes.",
     "- clip: EXACTLY 1 slide. The headline is a whole first-person rant, 25-70 words, written as short lines. No meme layer, no durations.",
     `- carousel: ${CAROUSEL_MIN}-${CAROUSEL_MAX} slides that tell ONE story in sequence; slide 1 stops the scroll, the last one asks for the action.`,
     "",
@@ -357,11 +676,43 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
+  // Stage one: many cheap concepts. Stage two: throw the generic ones out for
+  // free. Only what survives is worth the expensive write-up.
+  const drafted = await draftConcepts(
+    wanted,
+    // The drafter was only given a one-line summary, so its concepts came back
+    // about small businesses in general rather than about THIS one. It needs
+    // the same profile the write-up gets.
+    [profileSummary(brand.business) || "(sparse)", brandSummary(brand)].filter(Boolean).join("\n"),
+    seen,
+  );
+  const limits: Record<string, Record<string, number>> = {};
+  for (const w of wanted) {
+    if (w.asset?.kind === "template") {
+      limits[w.asset.id] = Object.fromEntries(w.asset.slots.map((x) => [x.name, x.maxWords]));
+    } else if (w.asset?.kind === "reaction") {
+      limits[w.asset.id] = Object.fromEntries(w.asset.setupSlots.map((x) => [x.name, x.maxWords]));
+    }
+  }
+  const screened = screenConcepts(drafted, { exclude: seen, limits });
+
+  const shortlist = screened.kept.length
+    ? [
+        "",
+        "SHORTLIST — these concepts already passed the specificity screen.",
+        "Pick the strongest for each item and write it up properly. You may sharpen",
+        "the wording; do not replace a concept with a vaguer one.",
+        ...screened.kept.map(
+          (c) => `- [${c.assetId}] ${Object.entries(c.text).map(([k, v]) => `${k}: ${v}`).join(" | ")}`,
+        ),
+      ].join("\n")
+    : "";
+
   try {
     const raw = await chat(
       [
         { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "user", content: shortlist ? `${user}\n${shortlist}` : user },
       ],
       { json: true, temperature: 0.95, maxTokens: 9000 },
     );
@@ -377,12 +728,37 @@ export async function POST(req: Request) {
 
     const now = Date.now();
     const built: ContentAsset[] = list.map((a, n) => {
-      const kind: AssetKind = KINDS.includes(a.kind as AssetKind)
-        ? (a.kind as AssetKind)
-        : wanted[n]?.kind ?? "carousel";
+      /**
+       * The plan decides the format; the model only fills it.
+       *
+       * The model is handed a kind and used to be believed over the plan, so a
+       * slot specified as a reaction meme quietly became a carousel whenever
+       * the writer preferred one — which is how a batch composed as two video
+       * memes came back with none. It is told what to write, not asked what
+       * format it fancies. The model's answer is still the fallback for a slot
+       * the plan somehow left unset.
+       */
+      const kind: AssetKind =
+        wanted[n]?.kind ??
+        (KINDS.includes(a.kind as AssetKind) ? (a.kind as AssetKind) : "carousel");
       const angle = (ANGLES.find((x) => x.id === a.angle)?.id ??
         wanted[n]?.angle ??
         "relatable") as AngleId;
+
+      const slot = wanted[n];
+      /**
+       * The frame behind the text, taken from the library rather than searched.
+       * A template supplies its own artwork; a reaction floats over ambient
+       * footage; a text-driven clip plays its assigned background.
+       */
+      const memeMedia =
+        slot?.asset?.kind === "template"
+          ? imageRef(slot.asset.file, "stock", slot.asset.name)
+          : slot?.plate
+            ? imageRef(slot.plate.file, "stock", slot.plate.description)
+            : slot?.background
+              ? videoRef(slot.background.file, undefined, "stock")
+              : undefined;
 
       const rawSlides = Array.isArray(a.slides) ? a.slides : [];
       // A meme and a clip are both a single frame; only reels and carousels
@@ -402,15 +778,18 @@ export async function POST(req: Request) {
           durationMs:
             kind === "reel" ? Math.min(4000, Math.max(1200, Number(s.durationMs) || 2200)) : undefined,
           mediaQuery,
-          // Reels ask for footage first and fall back to a still when no
-          // video source is connected.
-          media:
-            findMedia({
-              ...mediaQuery,
-              // A clip IS footage — a still defeats the whole format.
-              want: kind === "reel" || kind === "clip" ? "video" : "image",
-              context: brand.business.sector,
-            }) ?? undefined,
+          // A meme's visual is never searched for. It is the approved
+          // template's artwork, or the ambient background a reaction floats
+          // over. Searching here is what produced a stock clip of someone
+          // laughing for every joke.
+          media: memeMedia
+            ? memeMedia
+            : findMedia({
+                ...mediaQuery,
+                // A clip IS footage — a still defeats the whole format.
+                want: kind === "reel" || kind === "clip" ? "video" : "image",
+                context: brand.business.sector,
+              }) ?? undefined,
         };
       });
 
@@ -425,9 +804,18 @@ export async function POST(req: Request) {
         meme:
           kind === "meme"
             ? {
-                topText: String(a.meme?.topText ?? "").trim(),
-                bottomText: String(a.meme?.bottomText ?? "").trim(),
-                reactionQuery: wanted[n]?.reaction ?? "",
+                templateId: wanted[n]?.asset?.id,
+                slots: Object.fromEntries(
+                  Object.entries((a.meme?.slots ?? {}) as Record<string, unknown>).map(
+                    ([k, v]) => [k, String(v ?? "").trim()],
+                  ),
+                ),
+                // A reaction asset is the picture-in-picture punchline; a
+                // template is the frame itself and has no inset.
+                reaction:
+                  wanted[n]?.asset?.kind === "reaction"
+                    ? videoRef(wanted[n]!.asset!.file, undefined, "stock")
+                    : undefined,
               }
             : undefined,
         audioHint: kind === "reel" ? String(a.audioHint ?? "").trim() : undefined,
@@ -444,18 +832,16 @@ export async function POST(req: Request) {
     // configured. Done after composition, in one batched pass, so a missing
     // key costs nothing and the route never waits on twenty serial lookups.
     if (pexelsEnabled()) {
-      const requests = built.flatMap((a) => [
+      // Memes and text-driven clips are dressed from the library above, so they
+      // are excluded here entirely — no meme ever reaches a stock search now.
+      const fromLibrary = new Set(
+        built
+          .filter((a, n) => wanted[n]?.asset || wanted[n]?.background || wanted[n]?.plate)
+          .map((a) => a.id),
+      );
+      const requests = built.filter((a) => !fromLibrary.has(a.id)).flatMap((a) => [
         // The meme's inset is a second, separate lookup: the background and
         // the reaction are deliberately different pictures.
-        ...(a.kind === "meme" && a.meme?.reactionQuery
-          ? [
-              {
-                key: `${a.id}:reaction`,
-                query: a.meme.reactionQuery,
-                want: "video" as const,
-              },
-            ]
-          : []),
         ...a.slides.map((s) => ({
           key: `${a.id}:${s.id}`,
           query: toQuery({
@@ -496,7 +882,14 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ assets, rejected, remaining: limit.remaining });
+    return NextResponse.json({
+      assets,
+      rejected,
+      // What the free screen removed before anything was paid for.
+      screened: { drafted: drafted.length, kept: screened.kept.length, dropped: screened.dropped },
+      trends: trends.map((t) => t.id),
+      remaining: limit.remaining,
+    });
   } catch (err) {
     if (err instanceof MissingKeyError) {
       return NextResponse.json(
