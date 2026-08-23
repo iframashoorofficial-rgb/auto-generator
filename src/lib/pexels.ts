@@ -129,48 +129,73 @@ function scoreFile(f: PexelsVideoFile): number {
  * returns them by relevance, not by how well they crop, and the first hit was
  * often the worst-shaped one.
  */
-export async function findVideo(query: string): Promise<MediaRef | null> {
+/** Several distinct clips for one query — the best file from each result. */
+export async function findVideos(query: string, count: number): Promise<MediaRef[]> {
   const key = process.env.PEXELS_API_KEY;
-  if (!key || !query) return null;
+  if (!key || !query) return [];
 
-  const url = `${VIDEO_ENDPOINT}?query=${encodeURIComponent(query)}&orientation=portrait&per_page=10&size=medium`;
+  const perPage = Math.min(30, Math.max(10, count));
+  const url = `${VIDEO_ENDPOINT}?query=${encodeURIComponent(query)}&orientation=portrait&per_page=${perPage}&size=medium`;
   const data = await call<{ videos?: PexelsVideo[] }>(url, key);
-  const videos = data?.videos ?? [];
-  if (!videos.length) return null;
 
-  let best: { file: PexelsVideoFile; poster?: string; score: number } | null = null;
-  for (const v of videos) {
+  const out: MediaRef[] = [];
+  for (const v of data?.videos ?? []) {
+    let best: { file: PexelsVideoFile; score: number } | null = null;
     for (const f of v.video_files ?? []) {
       if (f.file_type !== "video/mp4" || !f.link) continue;
       const score = scoreFile(f);
       if (score === Infinity) continue;
-      if (!best || score < best.score) best = { file: f, poster: v.image, score };
+      if (!best || score < best.score) best = { file: f, score };
     }
+    if (best) out.push(videoRef(best.file.link, v.image, "external"));
+    if (out.length >= count) break;
   }
+  return out;
+}
 
-  if (!best) return null;
-  return videoRef(best.file.link, best.poster, "external");
+export async function findVideo(query: string): Promise<MediaRef | null> {
+  return (await findVideos(query, 1))[0] ?? null;
+}
+
+/**
+ * Several distinct photos for one query.
+ *
+ * A carousel's slides usually describe the same world in slightly different
+ * words, so they collapse to one query — and taking result [0] every time gave
+ * every slide the same picture. Asking for a list is what lets the caller hand
+ * a different one to each slide.
+ */
+export async function findPhotos(query: string, count: number): Promise<MediaRef[]> {
+  const key = process.env.PEXELS_API_KEY;
+  if (!key || !query) return [];
+
+  const perPage = Math.min(30, Math.max(5, count));
+  const url = `${PHOTO_ENDPOINT}?query=${encodeURIComponent(query)}&orientation=portrait&per_page=${perPage}`;
+  const data = await call<{ photos?: PexelsPhoto[] }>(url, key);
+
+  const out: MediaRef[] = [];
+  for (const photo of data?.photos ?? []) {
+    const src = photo?.src?.portrait ?? photo?.src?.large ?? photo?.src?.medium;
+    if (src) out.push(imageRef(src, "external", photo?.alt ?? ""));
+    if (out.length >= count) break;
+  }
+  return out;
 }
 
 export async function findPhoto(query: string): Promise<MediaRef | null> {
-  const key = process.env.PEXELS_API_KEY;
-  if (!key || !query) return null;
-
-  const url = `${PHOTO_ENDPOINT}?query=${encodeURIComponent(query)}&orientation=portrait&per_page=5`;
-  const data = await call<{ photos?: PexelsPhoto[] }>(url, key);
-  const photo = data?.photos?.[0];
-  const src = photo?.src?.portrait ?? photo?.src?.large ?? photo?.src?.medium;
-  if (!src) return null;
-
-  return imageRef(src, "external", photo?.alt ?? "");
+  return (await findPhotos(query, 1))[0] ?? null;
 }
 
 /**
  * Resolve many shots at once.
  *
- * Deduplicated and capped: a batch of four assets can hold twenty slides, and
- * twenty sequential lookups would push the route past its timeout. Identical
- * queries are fetched once and shared.
+ * Still one network call per distinct query — twenty sequential lookups would
+ * push the route past its timeout — but a query shared by several slides now
+ * fetches several results and gives each slide a different one.
+ *
+ * That sharing used to mean the identical picture: a carousel describes one
+ * world across its slides, so its queries collapse into one, and every slide
+ * got result [0]. Five slides, one photo, five times.
  */
 export async function findMany(
   requests: { key: string; query: string; want: "image" | "video" }[],
@@ -179,25 +204,49 @@ export async function findMany(
   const out = new Map<string, MediaRef>();
   if (!pexelsEnabled()) return out;
 
-  const unique = new Map<string, { query: string; want: "image" | "video" }>();
+  // Group by query, keeping the slides that asked for it.
+  const groups = new Map<string, { query: string; want: "image" | "video"; keys: string[] }>();
   for (const r of requests) {
     const dedupeKey = `${r.want}:${r.query}`;
-    if (!unique.has(dedupeKey) && unique.size < cap) {
-      unique.set(dedupeKey, { query: r.query, want: r.want });
+    const group = groups.get(dedupeKey);
+    if (group) group.keys.push(r.key);
+    else if (groups.size < cap) {
+      groups.set(dedupeKey, { query: r.query, want: r.want, keys: [r.key] });
     }
   }
 
   const results = await Promise.all(
-    [...unique.entries()].map(async ([dedupeKey, r]) => {
-      const ref = r.want === "video" ? await findVideo(r.query) : await findPhoto(r.query);
-      return [dedupeKey, ref] as const;
+    [...groups.entries()].map(async ([dedupeKey, g]) => {
+      const refs =
+        g.want === "video"
+          ? await findVideos(g.query, g.keys.length)
+          : await findPhotos(g.query, g.keys.length);
+      return [dedupeKey, refs] as const;
     }),
   );
 
-  const byDedupe = new Map(results.filter(([, ref]) => ref) as [string, MediaRef][]);
-  for (const r of requests) {
-    const ref = byDedupe.get(`${r.want}:${r.query}`);
-    if (ref) out.set(r.key, ref);
+  /**
+   * Used across the WHOLE batch, not just within a query.
+   *
+   * Two assets can land on near-identical queries, and the same photo turning
+   * up on two cards in one day's ideas is the same complaint as it turning up
+   * on two slides of one card.
+   */
+  const used = new Set<string>();
+  for (const [dedupeKey, refs] of results) {
+    const g = groups.get(dedupeKey);
+    if (!g || !refs.length) continue;
+
+    let next = 0;
+    for (const key of g.keys) {
+      while (next < refs.length && used.has(refs[next].url)) next++;
+      // Repeating a picture is worse than a fresh one and better than none, so
+      // a query that simply has too few results falls back to its last hit.
+      const ref = refs[next] ?? refs[refs.length - 1];
+      out.set(key, ref);
+      used.add(ref.url);
+      next++;
+    }
   }
   return out;
 }

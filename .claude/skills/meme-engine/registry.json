@@ -1,0 +1,509 @@
+{
+  "$comment": "Format registry v2 — definitions re-verified 2026-08-21 against live sources. Records carry `_verified` explaining what was checked and what changed; `_source` on each example is provenance and is stripped before the writer sees it. Formats without examples are unconfirmed, not merely unseeded.",
+  "version": 2,
+  "seeded_at": "2026-08-21",
+  "platform_register": {
+    "tiktok": {
+      "case": "lower",
+      "terminal_punctuation": false,
+      "emoji": false,
+      "max_words_per_line": 9,
+      "require_anchors": 2,
+      "may_name_visible_elements": false,
+      "banned_openers": [
+        "when you",
+        "pov",
+        "me when",
+        "that moment when",
+        "nobody:",
+        "literally me"
+      ],
+      "caption_role": "beat",
+      "joke_carrier": "text+timing"
+    },
+    "reels": {
+      "case": "lower",
+      "terminal_punctuation": false,
+      "emoji": false,
+      "max_words_per_line": 9,
+      "require_anchors": 2,
+      "may_name_visible_elements": false,
+      "banned_openers": [
+        "when you",
+        "pov",
+        "me when",
+        "that moment when"
+      ],
+      "caption_role": "beat",
+      "joke_carrier": "text+timing"
+    },
+    "x": {
+      "case": "lower",
+      "terminal_punctuation": false,
+      "emoji": false,
+      "max_words_per_line": 40,
+      "require_anchors": 0,
+      "may_name_visible_elements": true,
+      "banned_openers": [
+        "when you",
+        "pov",
+        "me when"
+      ],
+      "caption_role": "search_bait",
+      "joke_carrier": "clip",
+      "notes": "Caption describes the clip in keyword salad for discovery. The clip is the joke. Alt structure: quote line -> 'Me:' -> reaction clip."
+    },
+    "reddit": {
+      "case": "sentence",
+      "terminal_punctuation": true,
+      "emoji": false,
+      "max_words_per_line": 12,
+      "require_anchors": 0,
+      "may_name_visible_elements": false,
+      "banned_openers": [
+        "when you",
+        "pov"
+      ],
+      "caption_role": "throwaway_label",
+      "joke_carrier": "image",
+      "notes": "Title is deliberately flat. Top posts today used titles like 'Sunday morning', 'To be continued', 'Idk what to put here'. Put ZERO joke in the title. Topic must be a communal grievance: cost of living, rent, job market, gym, dating."
+    }
+  },
+  "formats": [
+    {
+      "id": "saxophone-gets-louder",
+      "name": "Saxophone gets louder",
+      "medium": "video",
+      "aspect": "9:16",
+      "duration_s": 7.5,
+      "platforms": [
+        "tiktok",
+        "reels"
+      ],
+      "first_seen": "2026-05-02",
+      "status": "long-tail",
+      "audio": {
+        "cue": "sax_hit",
+        "at_s": 4.1
+      },
+      "beats": [
+        {
+          "t": 0.0,
+          "slot": "setup",
+          "max_words": 7,
+          "style": "caption-top"
+        },
+        {
+          "t": 2.4,
+          "slot": "the_detail",
+          "max_words": 4,
+          "style": "caption-top"
+        },
+        {
+          "t": 4.1,
+          "slot": null,
+          "action": "zoom_in",
+          "audio_cue": "sax_hit"
+        }
+      ],
+      "slot_guidance": {
+        "setup": "The mundane moment of impending doom, stated plainly. The catchphrase 'and the saxophones get louder' is the fixed tag that ends it.",
+        "the_detail": "The small fact that makes it inevitable. Never state the consequence."
+      },
+      "examples": [
+        {
+          "setup": "When you forgot to send that one email",
+          "the_detail": "and the saxophones get louder",
+          "_source": "canonical example quoted in yahoo.com/dictionary.com trend explainers"
+        }
+      ],
+      "origin": "Boyz n the Hood (1991) score; revived by @foreverhumblemarc96, Dec 2025",
+      "_verified": "2026-08-21: origin and meaning corrected — it signals impending doom, it is not a slow-realisation reveal.",
+      "_register_conflict": "The canonical real example opens with 'When you', which the tiktok register bans outright."
+    },
+    {
+      "id": "four-tones",
+      "name": "Supportive / disappointed / sarcastic / flirty",
+      "medium": "video",
+      "aspect": "9:16",
+      "duration_s": 9.0,
+      "platforms": [
+        "tiktok",
+        "reels"
+      ],
+      "first_seen": "2026-06-10",
+      "status": "long-tail",
+      "audio": {
+        "cue": "none"
+      },
+      "beats": [
+        {
+          "t": 0.0,
+          "slot": "one_line",
+          "tone": "supportive",
+          "max_words": 8,
+          "style": "spoken"
+        },
+        {
+          "t": 2.2,
+          "slot": "one_line",
+          "tone": "disappointed",
+          "max_words": 8,
+          "style": "spoken"
+        },
+        {
+          "t": 4.4,
+          "slot": "one_line",
+          "tone": "sarcastic",
+          "max_words": 8,
+          "style": "spoken"
+        },
+        {
+          "t": 6.6,
+          "slot": "one_line",
+          "tone": "angry",
+          "max_words": 8,
+          "style": "spoken"
+        }
+      ],
+      "slot_guidance": {
+        "one_line": "ONE sentence, reused verbatim across all four beats. It must be a line that plausibly changes meaning with delivery. Only the tone changes."
+      },
+      "automation_note": "Easiest format to fully automate: one text generation, four TTS calls with tone control, no editing decisions.",
+      "examples": [
+        {
+          "one_line": "You're wearing that",
+          "_source": "#actingchallenge, TikTok"
+        },
+        {
+          "one_line": "I didn't order the tuna salad",
+          "_source": "#actingchallenge, TikTok"
+        },
+        {
+          "one_line": "You can have the last bite",
+          "_source": "#actingchallenge, TikTok"
+        },
+        {
+          "one_line": "Why are you crying?",
+          "_source": "#actingchallenge, TikTok"
+        }
+      ],
+      "_verified": "2026-08-21: fourth tone corrected from 'flirty' to 'angry'. Real set is supportive/sarcastic/disappointed/angry."
+    },
+    {
+      "id": "netflix-documentary",
+      "name": "Netflix documentary",
+      "medium": "video",
+      "aspect": "9:16",
+      "duration_s": 12.0,
+      "platforms": [
+        "tiktok",
+        "reels"
+      ],
+      "first_seen": "2026-07-28",
+      "status": "hot",
+      "cross_platform": true,
+      "audio": {
+        "track": "On A Mission — Duomo"
+      },
+      "beats": [
+        {
+          "t": 0,
+          "slot": "caption",
+          "max_words": 14,
+          "style": "overlay"
+        }
+      ],
+      "slot_guidance": {
+        "caption": "ONE line. A tease for a confession you never actually make — the video ends before the story does. Real posts are short, casual, and often use emoji and capitals; they are not deadpan chyrons."
+      },
+      "examples": [
+        {
+          "caption": "This may take while",
+          "_source": "@jappbeni via hercampus.com"
+        },
+        {
+          "caption": "I've waited for as long as possible for this moment to tell my truth 😬",
+          "_source": "@kevin_penrose via hercampus.com"
+        },
+        {
+          "caption": "The eldest daughter lore is UNMATCHED!!",
+          "_source": "@gloriacentanni via hercampus.com"
+        },
+        {
+          "caption": "EPISODE 1",
+          "_source": "@masonthemaker via hercampus.com"
+        },
+        {
+          "caption": "let me know what you want me to start with",
+          "_source": "@charlidamelio via hercampus.com"
+        }
+      ],
+      "staging": "Sit in a chair, talking-head style, eyes just off camera as if answering a producer. Mini mic optional. The performance carries it.",
+      "_verified": "2026-08-21: rewritten. Registry had lower_third/ominous_claim/evidence_label/witness_line; no real post uses that structure. Real format is one caption plus performance.",
+      "_register_conflict": "Real captions use capitals and emoji, both banned by the tiktok register."
+    },
+    {
+      "id": "freaked-out-bob",
+      "name": "Reasons to get a bob",
+      "medium": "video",
+      "aspect": "9:16",
+      "duration_s": 8.0,
+      "platforms": [
+        "tiktok",
+        "reels"
+      ],
+      "first_seen": "2026-08-01",
+      "status": "hot",
+      "cross_platform": true,
+      "audio": {
+        "track": "FREAKED OUT — Fat Papi & prodshushy",
+        "cut_on_beat": true,
+        "note": "Trend rests on mishearing 'get that bag' as 'get that bob'."
+      },
+      "beats": [
+        {
+          "t": 0.0,
+          "slot": "reason_1",
+          "max_words": 5,
+          "style": "caption-top"
+        },
+        {
+          "t": 1.6,
+          "slot": "reason_2",
+          "max_words": 5,
+          "style": "caption-top"
+        },
+        {
+          "t": 3.2,
+          "slot": "reason_3",
+          "max_words": 5,
+          "style": "caption-top"
+        },
+        {
+          "t": 4.8,
+          "slot": "reason_4",
+          "max_words": 5,
+          "style": "caption-top"
+        },
+        {
+          "t": 6.4,
+          "slot": "reason_5",
+          "max_words": 5,
+          "style": "caption-top"
+        }
+      ],
+      "slot_guidance": {
+        "reason_*": "DO NOT ESCALATE. Every reason is the same thing, stated identically — the original is literally '1. Bob 2. Bob 3. Bob 4. Bob'. The joke is a list that refuses to vary; escalation kills it. Variation lives in the camera angle and delivery, never the text."
+      },
+      "examples": [
+        {
+          "reason_1": "Bob",
+          "reason_2": "Bob",
+          "reason_3": "Bob",
+          "reason_4": "Bob",
+          "_source": "Jocelyn Meiere, TikTok — 80M+ views, via thetab.com/2026/07/02"
+        },
+        {
+          "reason_1": "Armin",
+          "reason_2": "Mikasa",
+          "reason_3": "Eren",
+          "_source": "Attack on Titan variant, TikTok — each 'reason' is a character with a bob"
+        }
+      ],
+      "origin": "Jocelyn Meiere, TikTok; first video 80M+ views",
+      "fit_note": "Tied to the bob haircut itself. Adapting it to an unrelated product is a stretch — the repeated noun has to be something visible.",
+      "_verified": "2026-08-21: mechanic corrected — was documented as mandatory escalation, which is the opposite of the real format."
+    },
+    {
+      "id": "how-different-our-lives-are",
+      "name": "How different our lives are",
+      "medium": "video",
+      "aspect": "9:16",
+      "duration_s": 10.0,
+      "platforms": [
+        "tiktok",
+        "reels"
+      ],
+      "first_seen": "2026-08-05",
+      "status": "hot",
+      "audio": {
+        "track": "You Make My Dreams — Hall & Oates",
+        "_unverified": true
+      },
+      "layout": "split_screen",
+      "beats": [
+        {
+          "t": 0.0,
+          "slot": "timestamp",
+          "max_words": 3,
+          "style": "caption-center"
+        },
+        {
+          "t": 0.5,
+          "slot": "life_a",
+          "max_words": 7,
+          "style": "caption-left"
+        },
+        {
+          "t": 0.5,
+          "slot": "life_b",
+          "max_words": 7,
+          "style": "caption-right"
+        }
+      ],
+      "slot_guidance": {
+        "timestamp": "A specific clock time. Never 'morning' or 'later'.",
+        "life_a": "Strict grammatical parallel with life_b.",
+        "life_b": "Same structure, opposite content. The parallel IS the joke."
+      },
+      "examples": [],
+      "_verified": "2026-08-21: format exists (two contrasting routines cut together, one calm one chaotic), but the Hall & Oates track and the 'timestamp' slot could NOT be confirmed. Needs real posts."
+    },
+    {
+      "id": "me-at-parents-age",
+      "name": "Me at the same age as my parents",
+      "medium": "video",
+      "aspect": "9:16",
+      "duration_s": 9.0,
+      "platforms": [
+        "tiktok",
+        "reels"
+      ],
+      "first_seen": "2026-08-03",
+      "status": "hot",
+      "audio": {
+        "track": "Hey Baby — Pitbull"
+      },
+      "beats": [
+        {
+          "t": 0.0,
+          "slot": "age",
+          "max_words": 3,
+          "style": "caption-top"
+        },
+        {
+          "t": 1.2,
+          "slot": "parent_milestone",
+          "max_words": 8,
+          "style": "caption-top"
+        },
+        {
+          "t": 4.0,
+          "slot": "your_reality",
+          "max_words": 8,
+          "style": "caption-top"
+        }
+      ],
+      "slot_guidance": {
+        "age": "A specific number. Required.",
+        "parent_milestone": "Something concrete and quantified: a house, two kids, a mortgage figure.",
+        "your_reality": "Concrete and small. Never self-pitying — flat delivery only."
+      },
+      "examples": [
+        {
+          "age": "24",
+          "parent_milestone": "when they had two kids",
+          "your_reality": "partying in a bucket hat",
+          "_source": "canonical form of the trend via hercampus.com / newengen.com"
+        },
+        {
+          "age": "25",
+          "parent_milestone": "my mom when she was my age",
+          "your_reality": "me at my age 💀",
+          "_source": "real post text quoted in newengen.com August 2026 roundup"
+        },
+        {
+          "age": "28",
+          "parent_milestone": "my mom at 24",
+          "your_reality": "somehow I'm more stressed than her",
+          "_source": "real post text quoted in newengen.com August 2026 roundup"
+        }
+      ],
+      "_verified": "2026-08-21: audio and 3-slot structure both confirmed against real posts. No changes needed."
+    },
+    {
+      "id": "x-reaction-clip",
+      "name": "X reaction clip (keyword-salad caption)",
+      "medium": "video",
+      "aspect": "any",
+      "duration_s": 6.0,
+      "platforms": [
+        "x"
+      ],
+      "first_seen": "evergreen",
+      "status": "evergreen",
+      "never_retire": true,
+      "beats": [
+        {
+          "t": 0.0,
+          "slot": "search_caption",
+          "max_words": 40,
+          "style": "post-text"
+        }
+      ],
+      "slot_guidance": {
+        "search_caption": "Describe the clip exhaustively in lowercase keyword salad — subject, action, emotion, and every synonym someone might search. This is discovery text, NOT a joke. Observed at 1M and 1.2M views."
+      },
+      "alt_structure": {
+        "id": "x-quote-me-clip",
+        "beats": [
+          {
+            "slot": "quoted_expectation",
+            "max_words": 10,
+            "style": "post-text-line-1"
+          },
+          {
+            "slot": "literal",
+            "value": "Me:",
+            "style": "post-text-line-2"
+          }
+        ],
+        "slot_guidance": {
+          "quoted_expectation": "A social expectation stated in quotes, the more clichéd the better. The clip supplies the rebuttal."
+        }
+      },
+      "examples": [
+        {
+          "search_caption": "robert pattinson chris hansen primetime you see how this looks right /// reaction meme",
+          "_source": "@burnerbwoireact via knowyourmeme.com/memes/you-see-how-this-looks-right"
+        },
+        {
+          "search_caption": "you see how this looks, right?",
+          "_source": "@stayjdn via knowyourmeme.com/memes/you-see-how-this-looks-right"
+        }
+      ],
+      "_verified": "2026-08-21: keyword-salad caption model confirmed by real posts."
+    },
+    {
+      "id": "reddit-grievance-image",
+      "name": "Reddit grievance image macro",
+      "medium": "image",
+      "aspect": "any",
+      "platforms": [
+        "reddit"
+      ],
+      "first_seen": "evergreen",
+      "status": "evergreen",
+      "never_retire": true,
+      "beats": [
+        {
+          "slot": "title",
+          "max_words": 8,
+          "style": "post-title"
+        },
+        {
+          "slot": "image_text",
+          "max_words": 20,
+          "style": "in_image"
+        }
+      ],
+      "slot_guidance": {
+        "title": "DELIBERATELY FLAT. A label, not a joke. Observed top posts today: 'Sunday morning', 'To be continued', 'Idk what to put here'. If the title is funny, the post underperforms.",
+        "image_text": "Carries the entire joke. Topic must be a shared grievance — graduate job market, inflation, rent, gym, dating. Today's #1 (38.2K) was graduate unemployment; #2 (12.4K) was inflation."
+      },
+      "examples": [],
+      "_verified": "2026-08-21: not sourceable — reddit.com is unreachable from this environment. Needs real posts."
+    }
+  ]
+}

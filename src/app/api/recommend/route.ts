@@ -131,38 +131,20 @@ interface SlotSpec {
 /**
  * What a batch is made of, in the order it is shown.
  *
- * A product decision, not an accident of cycling an array: two reaction clips
- * so the batch has motion in it, one carousel to carry something useful at
- * length, and a fourth slot that is neither — rotated, so a week of batches is
- * not the same four cards with different words.
+ * One of each, fixed. The fourth slot used to rotate between a clip, a reel and
+ * a still template, which meant any given format showed up one day in three and
+ * the day's ideas felt like they were missing something — because they were.
+ * Four named formats, every day, is worth more than variety nobody asked for.
  *
- * The order matters as much as the mix. The carousel sits BETWEEN the two
- * reactions deliberately: run the two together and the day opens with two cards
- * of the same shape side by side, which reads as one idea shown twice. Split
- * this way, no two neighbours share a style in any of the three rotations.
+ * The order matters as much as the mix: no two neighbours share a style, so the
+ * day never opens with the same shape twice.
  */
 const BATCH: SlotSpec[] = [
   { kind: "meme", asset: "reaction" },
   { kind: "carousel" },
-  { kind: "meme", asset: "reaction" },
-  // Placeholder. The real value comes from ROTATION, below.
-  { kind: "clip" },
-];
-
-/** The fourth slot. Never a reaction, never a carousel. */
-const ROTATION: SlotSpec[] = [
-  { kind: "clip" },
-  { kind: "reel" },
   { kind: "meme", asset: "template" },
+  { kind: "clip" },
 ];
-
-/** The fourth slot's spec for this batch, rotated by cycle rather than by card. */
-function specFor(i: number, seed: number): SlotSpec {
-  const at = i % BATCH.length;
-  if (at !== BATCH.length - 1) return BATCH[at];
-  const cycle = Math.floor(i / BATCH.length);
-  return ROTATION[(cycle + seed) % ROTATION.length];
-}
 
 /**
  * Spread the batch across formats, angles and post patterns.
@@ -245,7 +227,7 @@ function plan(
   let plateCursor = 0;
 
   return Array.from({ length: count }, (_, i) => {
-    const spec = specFor(i, seed);
+    const spec = BATCH[i % BATCH.length];
     let kind = spec.kind;
     const angle = angles[(i + seed) % angles.length] as AngleId;
     // Every slot gets a trend if one is available, not just the second — three
@@ -419,6 +401,15 @@ Return {"concepts":[{"assetId":"...","text":{"<field>":"..."},"why":"one clause"
   } catch {
     return [];
   }
+}
+
+/**
+ * The clip format does not end on punctuation, and the gate rejects one that
+ * does — which quietly cost a day its clip. A trailing mark is a formatting
+ * slip, not a bad idea, so it is repaired rather than failed.
+ */
+function stripTerminal(text: string): string {
+  return text.replace(/[.!?]+\s*$/, "").trimEnd();
 }
 
 /** The per-item brief, rendered into the prompt. */
@@ -779,8 +770,14 @@ export async function POST(req: Request) {
         };
         return {
           id: slideId(i),
-          headline: String(s.headline ?? "").trim(),
-          body: String(s.body ?? "").trim() || undefined,
+          headline:
+            kind === "clip"
+              ? stripTerminal(String(s.headline ?? "").trim())
+              : String(s.headline ?? "").trim(),
+          body:
+            kind === "clip"
+              ? stripTerminal(String(s.body ?? "").trim()) || undefined
+              : String(s.body ?? "").trim() || undefined,
           durationMs:
             kind === "reel" ? Math.min(4000, Math.max(1200, Number(s.durationMs) || 2200)) : undefined,
           mediaQuery,
